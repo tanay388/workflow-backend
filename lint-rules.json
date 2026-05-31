@@ -1,0 +1,38 @@
+{
+  "max-lines": ["error", { "max": 300, "skipBlankLines": true, "skipComments": true }],
+  "max-lines-per-function": ["error", { "max": 80, "skipBlankLines": true, "skipComments": true }],
+  "no-restricted-syntax": [
+    "error",
+    {
+      "selector": "NewExpression[callee.name='OpenAI']",
+      "message": "Do not instantiate OpenAI directly. Use LLMClientFactory from common/llm/."
+    },
+    {
+      "selector": "NewExpression[callee.name='Composio']",
+      "message": "Do not instantiate Composio directly. Use ComposioService in connections/."
+    },
+    {
+      "selector": "NewExpression[callee.name='DataSource']",
+      "message": "Do not create a DataSource directly. Use the shared DatabaseModule (one pool)."
+    },
+    {
+      "selector": "MemberExpression[object.name='process'][property.name='env']",
+      "message": "Read environment via AppConfigService (config module only)."
+    }
+  ],
+  "no-restricted-imports": [
+    "error",
+    {
+      "paths": [
+        {
+          "name": "crypto",
+          "message": "Use CryptoService from common/crypto/. Raw node:crypto is forbidden here."
+        },
+        {
+          "name": "node:crypto",
+          "message": "Use CryptoService from common/crypto/. Raw node:crypto is forbidden here."
+        }
+      ]
+    }
+  ]
+}
