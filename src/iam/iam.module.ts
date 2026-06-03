@@ -14,6 +14,7 @@ import { InvitationsService } from './invitations.service';
 import { MembershipsService } from './memberships.service';
 import { OrganizationsService } from './organizations.service';
 import { WorkspacesService } from './workspaces.service';
+import { Workflow } from '../workflows/entities/workflow.entity';
 
 @Module({
   imports: [
@@ -24,6 +25,7 @@ import { WorkspacesService } from './workspaces.service';
       Membership,
       Invitation,
       User,
+      Workflow,
     ]),
   ],
   controllers: [IamController],

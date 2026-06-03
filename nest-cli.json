@@ -9,6 +9,11 @@
         "include": "common/email/templates/**/*.hbs",
         "outDir": "dist",
         "watchAssets": true
+      },
+      {
+        "include": "../public/widget/*",
+        "outDir": "dist/public",
+        "watchAssets": true
       }
     ]
   }

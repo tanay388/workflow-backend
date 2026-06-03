@@ -35,4 +35,7 @@ export class Organization extends BaseEntity {
 
   @Column({ type: 'varchar', length: 32, default: OrgStatus.ACTIVE })
   status: OrgStatus;
+
+  @Column({ type: 'numeric', precision: 12, scale: 4, name: 'credit_balance_usd', default: 0 })
+  creditBalanceUsd: string;
 }

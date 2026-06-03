@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
-import { InjectRepository } from '@nestjs/typeorm';
-import { IsNull, Repository } from 'typeorm';
+import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
+import { DataSource, IsNull, Repository } from 'typeorm';
 import { AppConfigService } from '../common/config/config.service';
 import { CryptoService } from '../common/crypto/crypto.service';
 import { parseDurationToMs } from '../common/utils/time';
@@ -15,6 +15,7 @@ export class TokenService {
     private readonly jwt: JwtService,
     private readonly config: AppConfigService,
     private readonly crypto: CryptoService,
+    @InjectDataSource() private readonly dataSource: DataSource,
     @InjectRepository(RefreshToken)
     private readonly refreshRepo: Repository<RefreshToken>,
   ) {}
@@ -28,6 +29,7 @@ export class TokenService {
       org_id: tenancy?.orgId ?? null,
       workspace_id: tenancy?.workspaceId ?? null,
       role: tenancy?.role ?? null,
+      aud: 'tenant',
     };
     return this.jwt.sign(payload);
   }
@@ -52,14 +54,29 @@ export class TokenService {
     rawToken: string,
   ): Promise<{ userId: string; refreshToken: string }> {
     const tokenHash = this.crypto.hashSha256(rawToken);
-    const row = await this.refreshRepo.findOne({ where: { tokenHash } });
-    if (!row || row.revokedAt || row.expiresAt <= new Date()) {
-      throw new Error('INVALID_REFRESH');
-    }
-    row.revokedAt = new Date();
-    await this.refreshRepo.save(row);
-    const refreshToken = await this.issueRefreshToken(row.userId);
-    return { userId: row.userId, refreshToken };
+    return this.dataSource.transaction(async (em) => {
+      const repo = em.getRepository(RefreshToken);
+      const row = await repo.findOne({ where: { tokenHash } });
+      if (!row || row.revokedAt || row.expiresAt <= new Date()) {
+        throw new Error('INVALID_REFRESH');
+      }
+      row.revokedAt = new Date();
+      await repo.save(row);
+
+      const raw = randomToken(32);
+      const expiresAt = new Date(
+        Date.now() + parseDurationToMs(this.config.jwt.refreshExpiresIn),
+      );
+      await repo.save(
+        repo.create({
+          userId: row.userId,
+          tokenHash: this.crypto.hashSha256(raw),
+          expiresAt,
+          revokedAt: null,
+        }),
+      );
+      return { userId: row.userId, refreshToken: raw };
+    });
   }
 
   async revokeRefreshToken(rawToken: string): Promise<void> {

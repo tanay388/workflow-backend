@@ -2,6 +2,7 @@ import { Global, Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AppConfigService } from '../config/config.service';
 import { AuditSubscriber } from './audit.subscriber';
+import { PgListenClient } from './pg-listen.client';
 
 /**
  * The single TypeORM connection for the process (TRD §1, §3.1, §15) —
@@ -28,7 +29,7 @@ import { AuditSubscriber } from './audit.subscriber';
       }),
     }),
   ],
-  providers: [AuditSubscriber],
-  exports: [TypeOrmModule],
+  providers: [AuditSubscriber, PgListenClient],
+  exports: [TypeOrmModule, PgListenClient],
 })
 export class DatabaseModule {}

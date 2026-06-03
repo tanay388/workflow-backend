@@ -14,6 +14,7 @@ export interface EnqueueRunInput {
   triggerSource: string;
   runBy?: unknown;
   input?: unknown;
+  triggerMetadata?: Record<string, unknown> | null;
   conversationId?: string | null;
   messageId?: string | null;
 }

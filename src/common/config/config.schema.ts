@@ -50,6 +50,11 @@ export const configSchema = z.object({
   JWT_SECRET: z.string().min(16, 'JWT_SECRET is required'),
   JWT_EXPIRES_IN: z.string().default('15m'),
   JWT_REFRESH_EXPIRES_IN: z.string().default('30d'),
+  JWT_PLATFORM_SECRET: z.string().min(16).optional(),
+  JWT_PLATFORM_EXPIRES_IN: z.string().default('8h'),
+  PLATFORM_ADMIN_EMAIL: z.string().email().optional(),
+  PLATFORM_ADMIN_PASSWORD: z.string().min(8).optional(),
+  PLATFORM_ADMIN_NAME: z.string().default('Platform Admin'),
   ARGON2_MEMORY_COST: z.coerce.number().int().positive().default(65536),
   ARGON2_TIME_COST: z.coerce.number().int().positive().default(3),
   ARGON2_PARALLELISM: z.coerce.number().int().positive().default(4),
@@ -61,6 +66,44 @@ export const configSchema = z.object({
   // ─── IAM (Phase 03) ─────────────────────────────────────────────────────
   FRONTEND_URL: z.string().url().default('http://localhost:3000'),
   INVITATION_EXPIRES_IN: z.string().default('7d'),
+
+  // ─── Engine / Worker (Phase 06) ─────────────────────────────────────────
+  WORKER_ENABLED: booleanString('true'),
+  ENGINE_MAX_STEPS: z.coerce.number().int().positive().default(1000),
+  ENGINE_DISPATCH_BATCH: z.coerce.number().int().positive().default(10),
+  ENGINE_EXECUTOR_POOL_SIZE: z.coerce.number().int().positive().default(5),
+  ENGINE_DISPATCH_INTERVAL_MS: z.coerce.number().int().positive().default(1500),
+  ENGINE_STALLED_MINUTES: z.coerce.number().int().positive().default(15),
+
+  // ─── Scheduler (Phase 11) ─────────────────────────────────────────────
+  SCHEDULER_TICK_INTERVAL_MS: z.coerce.number().int().positive().default(45_000),
+
+  // ─── LLM / BYOK (Phase 08) ──────────────────────────────────────────────
+  OPENAI_API_KEY: z.string().optional(),
+  DEFAULT_PRICE_PER_MILLION_USD: z.coerce.number().positive().default(5),
+
+  // ─── Composio / Connections (Phase 09) ─────────────────────────────────
+  COMPOSIO_API_KEY: z.string().optional(),
+  COMPOSIO_WEBHOOK_SECRET: z.string().optional(),
+
+  // ─── Widget / reCAPTCHA (Phase 14) ─────────────────────────────────────
+  RECAPTCHA_SECRET_KEY: z.string().optional(),
+  RECAPTCHA_SITE_KEY: z.string().optional(),
+  RECAPTCHA_MIN_SCORE: z.coerce.number().min(0).max(1).default(0.5),
+  WIDGET_EMBED_BASE_URL: z.string().url().optional(),
+  WIDGET_MAX_PAYLOAD_BYTES: z.coerce.number().int().positive().default(65_536),
+
+  // ─── Triggers (Phase 12) ───────────────────────────────────────────────
+  API_PUBLIC_URL: z.string().url().default('http://localhost:3001'),
+  INTERNAL_WEBHOOK_SECRET: z.string().optional(),
+  TRIGGER_CHAIN_MAX_DEPTH: z.coerce.number().int().positive().default(10),
+
+  // ─── Object storage for knowledge files (optional in dev) ─────────────────
+  SPACES_ENDPOINT: z.string().optional(),
+  SPACES_BUCKET: z.string().optional(),
+  SPACES_ACCESS_KEY: z.string().optional(),
+  SPACES_SECRET_KEY: z.string().optional(),
+  SPACES_REGION: z.string().optional(),
 });
 
 export type AppEnv = z.infer<typeof configSchema>;

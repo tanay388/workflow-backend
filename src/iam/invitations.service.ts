@@ -33,6 +33,22 @@ export class InvitationsService {
     private readonly audit: AuditService,
   ) {}
 
+  async listPending(orgId: string) {
+    const rows = await this.invitations.find({
+      where: { orgId, acceptedAt: IsNull() },
+      order: { createdAt: 'DESC' },
+    });
+    const now = new Date();
+    return rows.map((inv) => ({
+      id: inv.id,
+      email: inv.email,
+      role: inv.role,
+      expiresAt: inv.expiresAt,
+      createdAt: inv.createdAt,
+      expired: inv.expiresAt <= now,
+    }));
+  }
+
   async create(orgId: string, actorId: string, email: string, role: MemberRole) {
     const org = await this.orgs.findOne({ where: { id: orgId } });
     if (!org) throw new NotFoundException('Organization not found');
@@ -59,10 +75,16 @@ export class InvitationsService {
       }
     }
 
+    const pending = await this.invitations.findOne({
+      where: { orgId, email: normalized, acceptedAt: IsNull() },
+    });
+    if (pending) {
+      pending.role = role;
+      return this.resendExisting(org, pending, actorId, 'invitation.sent');
+    }
+
     const token = randomToken(24);
-    const expiresAt = new Date(
-      Date.now() + parseDurationToMs(this.config.invitationExpiresIn),
-    );
+    const expiresAt = this.newExpiresAt();
 
     const invitation = await this.invitations.save(
       this.invitations.create({
@@ -75,13 +97,7 @@ export class InvitationsService {
       }),
     );
 
-    const acceptUrl = `${this.config.frontendUrl}/accept-invite/${token}`;
-    await this.email.sendTemplate({
-      to: normalized,
-      subject: `Join ${org.name} on Growy`,
-      template: 'invitation',
-      context: { orgName: org.name, role, acceptUrl, expiresAt: expiresAt.toISOString() },
-    });
+    const acceptUrl = await this.deliverInvitationEmail(org, invitation);
 
     await this.audit.record({
       orgId,
@@ -93,6 +109,30 @@ export class InvitationsService {
     });
 
     return { invitation, acceptUrl };
+  }
+
+  async resend(orgId: string, invitationId: string, actorId: string) {
+    const org = await this.orgs.findOne({ where: { id: orgId } });
+    if (!org) throw new NotFoundException('Organization not found');
+
+    const invitation = await this.findPendingInvitation(orgId, invitationId);
+    return this.resendExisting(org, invitation, actorId, 'invitation.resent');
+  }
+
+  async revoke(orgId: string, invitationId: string, actorId: string) {
+    const invitation = await this.findPendingInvitation(orgId, invitationId);
+    await this.invitations.remove(invitation);
+
+    await this.audit.record({
+      orgId,
+      actorUserId: actorId,
+      action: 'invitation.revoked',
+      targetType: 'invitation',
+      targetId: invitation.id,
+      meta: { email: invitation.email, role: invitation.role },
+    });
+
+    return { revoked: true };
   }
 
   async preview(token: string) {
@@ -169,5 +209,67 @@ export class InvitationsService {
     if (invitation.acceptedAt) throw new BadRequestException('Invitation already accepted');
     if (invitation.expiresAt <= new Date()) throw new BadRequestException('Invitation expired');
     return invitation;
+  }
+
+  private async findPendingInvitation(orgId: string, invitationId: string) {
+    const invitation = await this.invitations.findOne({
+      where: { id: invitationId, orgId, acceptedAt: IsNull() },
+    });
+    if (!invitation) throw new NotFoundException('Invitation not found');
+    return invitation;
+  }
+
+  private newExpiresAt() {
+    return new Date(Date.now() + parseDurationToMs(this.config.invitationExpiresIn));
+  }
+
+  private async deliverInvitationEmail(org: Organization, invitation: Invitation) {
+    const acceptUrl = `${this.config.frontendUrl}/accept-invite/${invitation.token}`;
+    await this.email.sendTemplate({
+      to: invitation.email,
+      subject: `Join ${org.name} on Growy`,
+      template: 'invitation',
+      context: {
+        orgName: org.name,
+        role: invitation.role,
+        acceptUrl,
+        expiresAt: invitation.expiresAt.toISOString(),
+      },
+    });
+    return acceptUrl;
+  }
+
+  private async resendExisting(
+    org: Organization,
+    invitation: Invitation,
+    actorId: string,
+    auditAction: 'invitation.sent' | 'invitation.resent',
+  ) {
+    invitation.token = randomToken(24);
+    invitation.expiresAt = this.newExpiresAt();
+    await this.invitations.save(invitation);
+
+    const acceptUrl = await this.deliverInvitationEmail(org, invitation);
+
+    await this.audit.record({
+      orgId: invitation.orgId,
+      actorUserId: actorId,
+      action: auditAction,
+      targetType: 'invitation',
+      targetId: invitation.id,
+      meta: { email: invitation.email, role: invitation.role },
+    });
+
+    return {
+      invitation: {
+        id: invitation.id,
+        email: invitation.email,
+        role: invitation.role,
+        expiresAt: invitation.expiresAt,
+        createdAt: invitation.createdAt,
+        expired: false,
+      },
+      acceptUrl,
+    };
   }
 }

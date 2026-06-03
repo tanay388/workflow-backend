@@ -3,6 +3,7 @@ export interface JwtPayload {
   org_id: string | null;
   workspace_id: string | null;
   role: string | null;
+  aud?: string;
 }
 
 export interface AuthUser {

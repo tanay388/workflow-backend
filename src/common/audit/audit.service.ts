@@ -2,10 +2,11 @@ import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { normalizePagination, paginate } from '../utils/pagination';
+import { AuditDisplayService } from './audit-display.service';
 import { AuditActorType, AuditLog } from './audit-log.entity';
 
 export interface RecordAuditInput {
-  orgId: string;
+  orgId?: string | null;
   actorUserId?: string | null;
   actorType?: AuditActorType;
   action: string;
@@ -29,6 +30,7 @@ export class AuditService {
   constructor(
     @InjectRepository(AuditLog)
     private readonly repo: Repository<AuditLog>,
+    private readonly display: AuditDisplayService,
   ) {}
 
   async record(input: RecordAuditInput): Promise<AuditLog> {
@@ -63,6 +65,7 @@ export class AuditService {
     if (filters.to) qb.andWhere('log.created_at <= :to', { to: filters.to });
 
     const [data, total] = await qb.skip(offset).take(limit).getManyAndCount();
-    return paginate(data, total, page, limit);
+    const enriched = await this.display.enrich(data);
+    return paginate(enriched, total, page, limit);
   }
 }

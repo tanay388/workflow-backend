@@ -76,11 +76,28 @@ export class AppConfigService {
     secret: string;
     accessExpiresIn: string;
     refreshExpiresIn: string;
+    platformSecret: string;
+    platformExpiresIn: string;
   } {
+    const secret = this.get('JWT_SECRET');
     return {
-      secret: this.get('JWT_SECRET'),
+      secret,
       accessExpiresIn: this.get('JWT_EXPIRES_IN'),
       refreshExpiresIn: this.get('JWT_REFRESH_EXPIRES_IN'),
+      platformSecret: this.get('JWT_PLATFORM_SECRET') ?? `${secret}:platform`,
+      platformExpiresIn: this.get('JWT_PLATFORM_EXPIRES_IN'),
+    };
+  }
+
+  get platformAdminBootstrap(): {
+    email?: string;
+    password?: string;
+    name: string;
+  } {
+    return {
+      email: this.get('PLATFORM_ADMIN_EMAIL'),
+      password: this.get('PLATFORM_ADMIN_PASSWORD'),
+      name: this.get('PLATFORM_ADMIN_NAME'),
     };
   }
 
@@ -112,5 +129,104 @@ export class AppConfigService {
 
   get invitationExpiresIn(): string {
     return this.get('INVITATION_EXPIRES_IN');
+  }
+
+  get worker(): {
+    enabled: boolean;
+    maxSteps: number;
+    dispatchBatch: number;
+    executorPoolSize: number;
+    dispatchIntervalMs: number;
+    stalledMinutes: number;
+  } {
+    return {
+      enabled: this.get('WORKER_ENABLED'),
+      maxSteps: this.get('ENGINE_MAX_STEPS'),
+      dispatchBatch: this.get('ENGINE_DISPATCH_BATCH'),
+      executorPoolSize: this.get('ENGINE_EXECUTOR_POOL_SIZE'),
+      dispatchIntervalMs: this.get('ENGINE_DISPATCH_INTERVAL_MS'),
+      stalledMinutes: this.get('ENGINE_STALLED_MINUTES'),
+    };
+  }
+
+  get scheduler(): { tickIntervalMs: number } {
+    return { tickIntervalMs: this.get('SCHEDULER_TICK_INTERVAL_MS') };
+  }
+
+  get openaiApiKey(): string | undefined {
+    return this.get('OPENAI_API_KEY');
+  }
+
+  get composio(): { apiKey?: string; webhookSecret?: string } {
+    return {
+      apiKey: this.get('COMPOSIO_API_KEY'),
+      webhookSecret: this.get('COMPOSIO_WEBHOOK_SECRET'),
+    };
+  }
+
+  get triggers(): {
+    apiPublicUrl: string;
+    internalWebhookSecret?: string;
+    chainMaxDepth: number;
+  } {
+    return {
+      apiPublicUrl: this.get('API_PUBLIC_URL').replace(/\/$/, ''),
+      internalWebhookSecret: this.get('INTERNAL_WEBHOOK_SECRET'),
+      chainMaxDepth: this.get('TRIGGER_CHAIN_MAX_DEPTH'),
+    };
+  }
+
+  get recaptcha(): {
+    secretKey?: string;
+    siteKey?: string;
+    minScore: number;
+  } {
+    return {
+      secretKey: this.get('RECAPTCHA_SECRET_KEY'),
+      siteKey: this.get('RECAPTCHA_SITE_KEY'),
+      minScore: this.get('RECAPTCHA_MIN_SCORE'),
+    };
+  }
+
+  get widget(): {
+    embedBaseUrl: string;
+    apiPublicUrl: string;
+    maxPayloadBytes: number;
+  } {
+    const apiPublic = this.get('API_PUBLIC_URL').replace(/\/$/, '');
+    const embed =
+      this.get('WIDGET_EMBED_BASE_URL')?.replace(/\/$/, '') ??
+      `${apiPublic}/widget`;
+    return {
+      embedBaseUrl: embed,
+      apiPublicUrl: apiPublic,
+      maxPayloadBytes: this.get('WIDGET_MAX_PAYLOAD_BYTES'),
+    };
+  }
+
+  get defaultPricePerMillionUsd(): number {
+    return this.get('DEFAULT_PRICE_PER_MILLION_USD');
+  }
+
+  get spaces(): {
+    endpoint?: string;
+    bucket?: string;
+    accessKey?: string;
+    secretKey?: string;
+    region?: string;
+    enabled: boolean;
+  } {
+    const endpoint = this.get('SPACES_ENDPOINT');
+    const bucket = this.get('SPACES_BUCKET');
+    const accessKey = this.get('SPACES_ACCESS_KEY');
+    const secretKey = this.get('SPACES_SECRET_KEY');
+    return {
+      endpoint,
+      bucket,
+      accessKey,
+      secretKey,
+      region: this.get('SPACES_REGION'),
+      enabled: Boolean(endpoint && bucket && accessKey && secretKey),
+    };
   }
 }

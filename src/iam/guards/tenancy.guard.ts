@@ -9,10 +9,12 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { IS_PUBLIC_KEY } from '../../auth/decorators/public.decorator';
 import { SKIP_TENANCY_KEY } from '../../common/decorators/skip-tenancy.decorator';
+import { PLATFORM_ROUTE_KEY } from '../../admin/decorators/platform-admin.decorator';
 import {
   TenancyContextService,
   type Tenancy,
 } from '../../common/tenancy/tenancy-context.service';
+import { Workflow } from '../../workflows/entities/workflow.entity';
 import { Membership, MembershipStatus } from '../entities/membership.entity';
 import { Workspace } from '../entities/workspace.entity';
 
@@ -25,6 +27,8 @@ export class TenancyGuard implements CanActivate {
     private readonly memberships: Repository<Membership>,
     @InjectRepository(Workspace)
     private readonly workspaces: Repository<Workspace>,
+    @InjectRepository(Workflow)
+    private readonly workflows: Repository<Workflow>,
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
@@ -38,11 +42,19 @@ export class TenancyGuard implements CanActivate {
       context.getHandler(),
       context.getClass(),
     ]);
+    if (skipTenancy) return true;
+
+    const isPlatformRoute = this.reflector.getAllAndOverride<boolean>(PLATFORM_ROUTE_KEY, [
+      context.getHandler(),
+      context.getClass(),
+    ]);
+    if (isPlatformRoute) return true;
 
     const request = context.switchToHttp().getRequest<{
       user?: { id: string };
       params: Record<string, string>;
       headers: Record<string, string | string[] | undefined>;
+      query?: Record<string, string | string[] | undefined>;
       tenancy?: Tenancy;
       url: string;
     }>();
@@ -64,7 +76,8 @@ export class TenancyGuard implements CanActivate {
       throw new ForbiddenException('You are not a member of this organization');
     }
 
-    const workspaceHeader = this.header(request, 'x-workspace-id');
+    const workspaceHeader =
+      this.header(request, 'x-workspace-id') ?? this.queryParam(request, 'workspace_id');
     let workspaceId: string | undefined;
     if (workspaceHeader) {
       const workspace = await this.workspaces.findOne({ where: { id: workspaceHeader } });
@@ -89,8 +102,10 @@ export class TenancyGuard implements CanActivate {
     params: Record<string, string>;
     url: string;
     headers: Record<string, string | string[] | undefined>;
+    query?: Record<string, string | string[] | undefined>;
   }): Promise<string | undefined> {
-    const workspaceHeader = this.header(request, 'x-workspace-id');
+    const workspaceHeader =
+      this.header(request, 'x-workspace-id') ?? this.queryParam(request, 'workspace_id');
     if (workspaceHeader) {
       const workspace = await this.workspaces.findOne({ where: { id: workspaceHeader } });
       if (workspace) return workspace.orgId;
@@ -105,6 +120,11 @@ export class TenancyGuard implements CanActivate {
       return request.params.id;
     }
 
+    if (request.url.includes('/workflows/') && request.params.id) {
+      const wf = await this.workflows.findOne({ where: { id: request.params.id } });
+      return wf?.orgId;
+    }
+
     return undefined;
   }
 
@@ -115,5 +135,14 @@ export class TenancyGuard implements CanActivate {
     const value = request.headers[name];
     if (Array.isArray(value)) return value[0];
     return value;
+  }
+
+  private queryParam(
+    request: { query?: Record<string, string | string[] | undefined> },
+    name: string,
+  ): string | undefined {
+    const value = request.query?.[name];
+    if (Array.isArray(value)) return value[0];
+    return typeof value === 'string' ? value : undefined;
   }
 }

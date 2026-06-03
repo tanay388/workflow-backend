@@ -19,4 +19,13 @@ export class Plan {
 
   @Column({ type: 'boolean', name: 'is_active', default: true })
   isActive: boolean;
+
+  @Column({
+    type: 'numeric',
+    precision: 12,
+    scale: 4,
+    name: 'included_monthly_credit_usd',
+    nullable: true,
+  })
+  includedMonthlyCreditUsd: string | null;
 }

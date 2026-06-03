@@ -14,13 +14,22 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     private readonly tenancy: TenancyContextService,
   ) {
     super({
-      jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
+      jwtFromRequest: ExtractJwt.fromExtractors([
+        ExtractJwt.fromAuthHeaderAsBearerToken(),
+        (req) => {
+          const q = req?.query?.access_token;
+          return typeof q === 'string' ? q : null;
+        },
+      ]),
       ignoreExpiration: false,
       secretOrKey: config.jwt.secret,
     });
   }
 
   async validate(payload: JwtPayload): Promise<AuthUser> {
+    if (payload.aud && payload.aud !== 'tenant') {
+      throw new UnauthorizedException();
+    }
     const user = await this.auth.getUserById(payload.sub);
     if (!user) throw new UnauthorizedException();
     this.tenancy.set({

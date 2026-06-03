@@ -1,5 +1,12 @@
 import { Injectable } from '@nestjs/common';
-import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'node:crypto';
+import {
+  createCipheriv,
+  createDecipheriv,
+  createHash,
+  createHmac,
+  randomBytes,
+  timingSafeEqual,
+} from 'node:crypto';
 import { AppConfigService } from '../config/config.service';
 
 const ALGORITHM = 'aes-256-gcm';
@@ -73,6 +80,21 @@ export class CryptoService {
   /** Full SHA-256 hex digest for opaque token / OTP hashing (auth refresh, OTP). */
   hashSha256(plaintext: string): string {
     return createHash('sha256').update(plaintext, 'utf8').digest('hex');
+  }
+
+  /** HMAC-SHA256 hex for signed bearer tokens (approvals action links). */
+  hmacSha256(message: string, secret: string): string {
+    return createHmac('sha256', secret).update(message, 'utf8').digest('hex');
+  }
+
+  /** Constant-time compare of two hex digests. */
+  safeEqualHex(a: string, b: string): boolean {
+    if (a.length !== b.length) return false;
+    try {
+      return timingSafeEqual(Buffer.from(a, 'hex'), Buffer.from(b, 'hex'));
+    } catch {
+      return false;
+    }
   }
 
   private decodeKey(id: string, b64: string): Buffer {

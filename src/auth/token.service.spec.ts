@@ -1,7 +1,7 @@
 import { Test } from '@nestjs/testing';
 import { JwtService } from '@nestjs/jwt';
-import { getRepositoryToken } from '@nestjs/typeorm';
-import type { Repository } from 'typeorm';
+import { getDataSourceToken, getRepositoryToken } from '@nestjs/typeorm';
+import type { DataSource, Repository } from 'typeorm';
 import { AppConfigService } from '../common/config/config.service';
 import { CryptoService } from '../common/crypto/crypto.service';
 import { RefreshToken } from './entities/refresh-token.entity';
@@ -44,6 +44,13 @@ describe('TokenService', () => {
           useValue: { hashSha256: (v: string) => `hash:${v}` },
         },
         { provide: getRepositoryToken(RefreshToken), useValue: refreshRepo },
+        {
+          provide: getDataSourceToken(),
+          useValue: {
+            transaction: async (fn: (em: { getRepository: () => typeof refreshRepo }) => unknown) =>
+              fn({ getRepository: () => refreshRepo }),
+          } as Pick<DataSource, 'transaction'>,
+        },
       ],
     }).compile();
 

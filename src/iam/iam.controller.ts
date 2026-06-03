@@ -91,6 +91,31 @@ export class IamController {
     return this.invitations.create(orgId, tenancy.userId!, dto.email, dto.role);
   }
 
+  @Get('orgs/:id/invitations')
+  listInvitations(@Param('id') orgId: string) {
+    return this.invitations.listPending(orgId);
+  }
+
+  @Roles(MemberRole.ADMIN)
+  @Post('orgs/:id/invitations/:invitationId/resend')
+  resendInvitation(
+    @CurrentTenancy() tenancy: Tenancy,
+    @Param('id') orgId: string,
+    @Param('invitationId') invitationId: string,
+  ) {
+    return this.invitations.resend(orgId, invitationId, tenancy.userId!);
+  }
+
+  @Roles(MemberRole.ADMIN)
+  @Delete('orgs/:id/invitations/:invitationId')
+  revokeInvitation(
+    @CurrentTenancy() tenancy: Tenancy,
+    @Param('id') orgId: string,
+    @Param('invitationId') invitationId: string,
+  ) {
+    return this.invitations.revoke(orgId, invitationId, tenancy.userId!);
+  }
+
   @Public()
   @SkipTenancy()
   @Get('invitations/:token')
