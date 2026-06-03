@@ -68,8 +68,16 @@ export class AppConfigService {
   get corsOrigins(): string[] {
     return this.get('CORS_ORIGINS')
       .split(',')
-      .map((o) => o.trim())
-      .filter(Boolean);
+      .map((entry) => {
+        const trimmed = entry.trim();
+        if (!trimmed) return null;
+        try {
+          return trimmed.includes('://') ? new URL(trimmed).origin : trimmed.replace(/\/+$/, '');
+        } catch {
+          return trimmed.replace(/\/+$/, '') || null;
+        }
+      })
+      .filter((o): o is string => Boolean(o));
   }
 
   get jwt(): {
