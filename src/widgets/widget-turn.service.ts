@@ -10,7 +10,7 @@ import { DataSource, IsNull, Repository } from 'typeorm';
 import { AgentMemoryService } from '../common/agent/agent-memory.service';
 import { RUN_QUEUE, type RunQueue } from '../common/queue/run-queue.interface';
 import type { Tenancy } from '../common/tenancy/tenancy-context.service';
-import { mergeRunInput } from '../common/utils/workflow-variables';
+import { validateRunInput } from '../common/utils/run-input';
 import type { WorkflowGraph } from '../common/types/graph';
 import { Workflow } from '../workflows/entities/workflow.entity';
 import { WorkflowVersion } from '../workflows/entities/workflow-version.entity';
@@ -235,18 +235,13 @@ export class WidgetTurnService {
     });
 
     const mergedForm = { ...mergedFormSource, ...(formInput ?? {}) };
-    const runInput = graph
-      ? mergeRunInput(graph, {
-          message: trimmed,
-          user_message: trimmed,
-          form: mergedForm,
-          _chat: { assistantMessageId: assistantMsgId!, agentHistory },
-        })
-      : {
-          message: trimmed,
-          form: mergedForm,
-          _chat: { assistantMessageId: assistantMsgId!, agentHistory },
-        };
+    // Platform keys are injected after validation; _chat can never be caller-supplied.
+    const runInput = {
+      ...validateRunInput(graph, { message: trimmed, user_message: trimmed }, { mode: 'lenient' })
+        .input,
+      form: mergedForm,
+      _chat: { assistantMessageId: assistantMsgId!, agentHistory },
+    };
 
     const { runId } = await this.queue.enqueue({
       orgId: widget.orgId,

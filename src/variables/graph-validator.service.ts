@@ -5,7 +5,7 @@ import { NodeCatalogService } from '../editor/node-catalog.service';
 import { collectConfigStrings, validateConfigAgainstSchema } from './config-validator';
 import { ExpressionService } from './expression.service';
 import { OutputSchemaService } from './output-schema.service';
-import { getWorkflowVarDefinitions } from '../common/utils/workflow-variables';
+import { getWorkflowParameters } from '../common/utils/workflow-variables';
 import { UpstreamGraphService } from './upstream-graph.service';
 
 const START_TYPE = 'builtins.Start';
@@ -266,13 +266,11 @@ export class GraphValidatorService {
     targetNodeId: string,
     upstreamIds: Set<string>,
   ) {
-    const inputFields = new Set<string>();
-    const inputSchema = graph.input_schema as { properties?: Record<string, unknown> };
-    for (const key of Object.keys(inputSchema?.properties ?? {})) {
-      inputFields.add(key);
-    }
-
-    const varsFields = new Set(Object.keys(getWorkflowVarDefinitions(graph)));
+    // Unified namespace: `input.*` and `vars.*` are aliases over the same
+    // declared parameters.
+    const paramKeys = getWorkflowParameters(graph).map((p) => p.key);
+    const inputFields = new Set<string>(paramKeys);
+    const varsFields = new Set<string>(paramKeys);
 
     const upstreamNodeRefs = new Map<string, Set<string>>();
     for (const node of graph.nodes) {

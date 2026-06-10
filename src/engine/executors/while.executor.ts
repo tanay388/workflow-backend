@@ -8,10 +8,11 @@ export const executeWhile: NodeExecutor = async (ctx, node: WorkflowNode) => {
     throw new EngineError(`While node ${node.id} missing condition`, 'node_failed');
   }
 
-  const maxIterations = Number(config.max_iterations ?? 20);
-  const vars = ctx.getVars();
-  const iterKey = `${node.id}.iteration`;
-  const current = Number(vars[iterKey] ?? 0);
+  const configured = Number(config.max_iterations ?? 20);
+  // Guard against NaN/zero/negative values disabling the cap.
+  const maxIterations =
+    Number.isFinite(configured) && configured > 0 ? Math.floor(configured) : 20;
+  const current = ctx.getLoopCount(node.id);
 
   if (current >= maxIterations) {
     return {
@@ -22,7 +23,7 @@ export const executeWhile: NodeExecutor = async (ctx, node: WorkflowNode) => {
 
   const shouldLoop = ctx.evaluateCondition(condition);
   if (shouldLoop) {
-    vars[iterKey] = current + 1;
+    ctx.setLoopCount(node.id, current + 1);
     return {
       port: 'loop',
       data: { iterations: current + 1, passthrough: ctx.getOutputs() },

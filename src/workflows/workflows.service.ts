@@ -8,6 +8,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { In, IsNull, Repository } from 'typeorm';
 import { User } from '../auth/entities/user.entity';
 import { createEmptyGraph } from '../common/types/graph';
+import { normalizeGraphParameters } from '../common/utils/workflow-variables';
 import type { Tenancy } from '../common/tenancy/tenancy-context.service';
 import { GraphValidatorService } from '../variables/graph-validator.service';
 import type { CreateWorkflowDto, ListWorkflowsQueryDto, UpdateWorkflowDto } from './dto/workflow.dto';
@@ -108,7 +109,9 @@ export class WorkflowsService {
     workflow.updatedBy = userId;
 
     if (dto.graph !== undefined) {
-      const validation = this.graphValidator.validate(dto.graph);
+      // Canonicalize to the unified parameter model (lazy migration on save).
+      const graph = normalizeGraphParameters(dto.graph);
+      const validation = this.graphValidator.validate(graph);
       if (!validation.valid) {
         throw new BadRequestException({
           message: 'Graph validation failed',
@@ -117,7 +120,7 @@ export class WorkflowsService {
       }
       const result = await this.versionService.createVersion(
         workflow.id,
-        dto.graph,
+        graph,
         userId,
         dto.note ?? null,
       );

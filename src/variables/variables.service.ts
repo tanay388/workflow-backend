@@ -2,7 +2,7 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import type { WorkflowGraph } from '../common/types/graph';
 import type { NodeVariablesResponse } from '../common/types/validation';
 import { NodeCatalogService } from '../editor/node-catalog.service';
-import { getWorkflowVarDefinitions } from '../common/utils/workflow-variables';
+import { getWorkflowParameters } from '../common/utils/workflow-variables';
 import { OutputSchemaService } from './output-schema.service';
 import { UpstreamGraphService } from './upstream-graph.service';
 
@@ -33,33 +33,22 @@ export class VariablesService {
       };
     });
 
-    const inputSchema = this.catalog.resolveOutputSchema('builtins.Start', graph);
-    const inputFields = this.outputSchema.flatten(inputSchema, '', 'input');
-    const varDefs = getWorkflowVarDefinitions(graph);
-    const varsFields = Object.entries(varDefs).map(([name, def]) => ({
-      path: name,
-      type: def.type,
-      sample: def.default ?? null,
-      insertText: `{{ vars.${name} }}`,
+    // Unified namespace: all declared parameters surface once under `vars`
+    // (the canonical insert form); `input.*` remains a runtime alias.
+    const varsFields = getWorkflowParameters(graph).map((p) => ({
+      path: p.key,
+      type: p.type,
+      sample: p.default ?? null,
+      insertText: `{{ vars.${p.key} }}`,
     }));
 
     return {
       nodeId,
       upstream,
       namespaces: {
-        input: inputFields,
+        input: [],
         inputForm: [],
-        vars:
-          varsFields.length > 0
-            ? varsFields
-            : [
-                {
-                  path: '*',
-                  type: 'unknown',
-                  sample: null,
-                  insertText: '{{ vars.<name> }}',
-                },
-              ],
+        vars: varsFields,
       },
     };
   }

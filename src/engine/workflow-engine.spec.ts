@@ -2,8 +2,14 @@ import { Test } from '@nestjs/testing';
 import type { WorkflowGraph } from '../common/types/graph';
 import { ExpressionService } from '../variables/expression.service';
 import { ContextResolver } from './context-resolver';
+import { ActionExecutor } from './executors/action.executor';
+import { AgentExecutor } from './executors/agent.executor';
+import { UserApprovalExecutor } from './executors/user-approval.executor';
+import { WaitExecutor } from './executors/wait.executor';
 import { NodeRegistry } from './node-registry';
 import { WorkflowEngine } from './workflow-engine';
+
+const stubExecutor = { execute: jest.fn() };
 
 function buildGraph(overrides?: Partial<WorkflowGraph>): WorkflowGraph {
   return {
@@ -42,7 +48,16 @@ describe('WorkflowEngine', () => {
 
   beforeEach(async () => {
     const module = await Test.createTestingModule({
-      providers: [WorkflowEngine, NodeRegistry, ContextResolver, ExpressionService],
+      providers: [
+        WorkflowEngine,
+        NodeRegistry,
+        ContextResolver,
+        ExpressionService,
+        { provide: AgentExecutor, useValue: stubExecutor },
+        { provide: ActionExecutor, useValue: stubExecutor },
+        { provide: WaitExecutor, useValue: stubExecutor },
+        { provide: UserApprovalExecutor, useValue: stubExecutor },
+      ],
     }).compile();
     await module.init();
     engine = module.get(WorkflowEngine);

@@ -49,9 +49,9 @@ export class ExpressionService {
     },
   ): { ok: boolean; type?: string; reason?: string } {
     if (ref.kind === 'input') {
-      const key = ref.path.join('.');
-      if (!key || !namespace.inputFields.has(key)) {
-        return { ok: false, reason: `Unknown input field "${key || '?'}"` };
+      const root = ref.path[0];
+      if (!root || !namespace.inputFields.has(root)) {
+        return { ok: false, reason: `Unknown input field "${root || '?'}"` };
       }
       return { ok: true, type: 'string' };
     }
@@ -64,11 +64,13 @@ export class ExpressionService {
       return { ok: true, type: 'string' };
     }
     if (ref.kind === 'vars') {
-      const key = ref.path.join('.');
-      if (!key) return { ok: false, reason: 'Empty vars reference' };
+      const root = ref.path[0];
+      if (!root) return { ok: false, reason: 'Empty vars reference' };
       const varsFields = namespace.varsFields;
-      if (varsFields && varsFields.size > 0 && !varsFields.has(key)) {
-        return { ok: false, reason: `Unknown pipeline variable "${key}"` };
+      // Validate against declared params even when none exist — an undeclared
+      // vars reference can never resolve at runtime.
+      if (varsFields && !varsFields.has(root)) {
+        return { ok: false, reason: `Unknown variable "${root}"` };
       }
       return { ok: true, type: 'unknown' };
     }
@@ -113,7 +115,11 @@ export class ExpressionService {
   private walk(obj: unknown, path: string[]): unknown {
     let cur: unknown = obj;
     for (const seg of path) {
+      if (seg === '__proto__' || seg === 'constructor' || seg === 'prototype') {
+        return undefined;
+      }
       if (cur == null || typeof cur !== 'object') return undefined;
+      if (!Object.prototype.hasOwnProperty.call(cur, seg)) return undefined;
       cur = (cur as Record<string, unknown>)[seg];
     }
     return cur;

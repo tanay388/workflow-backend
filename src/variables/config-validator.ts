@@ -38,7 +38,7 @@ export function validateConfigAgainstSchema(
   return errors;
 }
 
-/** Collect all string values from config (including nested) for expression scanning. */
+/** Collect all string values from config (including nested objects and arrays) for expression scanning. */
 export function collectConfigStrings(
   config: Record<string, unknown>,
   prefix = '',
@@ -46,11 +46,25 @@ export function collectConfigStrings(
   const out: Array<{ field: string; value: string }> = [];
   for (const [key, val] of Object.entries(config)) {
     const field = prefix ? `${prefix}.${key}` : key;
-    if (typeof val === 'string') {
-      out.push({ field, value: val });
-    } else if (val && typeof val === 'object' && !Array.isArray(val)) {
-      out.push(...collectConfigStrings(val as Record<string, unknown>, field));
-    }
+    collectValue(val, field, out);
   }
   return out;
+}
+
+function collectValue(
+  val: unknown,
+  field: string,
+  out: Array<{ field: string; value: string }>,
+): void {
+  if (typeof val === 'string') {
+    out.push({ field, value: val });
+    return;
+  }
+  if (Array.isArray(val)) {
+    val.forEach((item, i) => collectValue(item, `${field}[${i}]`, out));
+    return;
+  }
+  if (val && typeof val === 'object') {
+    out.push(...collectConfigStrings(val as Record<string, unknown>, field));
+  }
 }

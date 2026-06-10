@@ -6,7 +6,7 @@ import { isDueThisMinute, utcMinuteKey } from '../common/utils/time';
 import { OrgStatus, Organization } from '../iam/entities/organization.entity';
 import { Workflow } from '../workflows/entities/workflow.entity';
 import type { WorkflowGraph } from '../common/types/graph';
-import { mergeRunInput } from '../common/utils/workflow-variables';
+import { validateRunInput } from '../common/utils/run-input';
 import { RUN_QUEUE, type RunQueue } from '../common/queue/run-queue.interface';
 import { WorkflowVersion } from '../workflows/entities/workflow-version.entity';
 import { Schedule } from './entities/schedule.entity';
@@ -61,9 +61,7 @@ export class ScheduleClaimService {
       where: { id: wf.currentVersionId },
     });
     const graph = version?.graph as WorkflowGraph | undefined;
-    const runInput = graph
-      ? mergeRunInput(graph, schedule.input ?? {})
-      : (schedule.input ?? {});
+    const runInput = validateRunInput(graph, schedule.input ?? {}, { mode: 'lenient' }).input;
 
     const { runId } = await this.runQueue.enqueue({
       orgId: schedule.orgId,

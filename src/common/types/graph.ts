@@ -28,10 +28,33 @@ export interface WorkflowVarDefinition {
   description?: string;
 }
 
+export type WorkflowParameterType = 'string' | 'number' | 'boolean' | 'object';
+
+/**
+ * Unified workflow parameter — canonical replacement for both
+ * `input_schema.properties` (immutable run parameters) and `workflow_vars`
+ * (mutable pipeline variables). Referenced as `{{ vars.<key> }}`;
+ * `{{ input.<key> }}` remains a supported alias.
+ */
+export interface WorkflowParameter {
+  key: string;
+  type: WorkflowParameterType;
+  title?: string;
+  description?: string;
+  /** Typed JSON default value. */
+  default?: unknown;
+  /** Must be provided in run input (enforced at enqueue). */
+  required?: boolean;
+  /** May be written by Set Variable nodes during execution. */
+  mutable?: boolean;
+}
+
 export interface WorkflowGraph {
   input_schema: Record<string, unknown>;
-  /** Pipeline variables available as {{ vars.<name> }}; mutable during execution. */
+  /** Legacy pipeline variables; superseded by `parameters` (kept for dual-read). */
   workflow_vars?: Record<string, WorkflowVarDefinition>;
+  /** Canonical unified parameters. When present, takes precedence over input_schema/workflow_vars. */
+  parameters?: WorkflowParameter[];
   max_steps?: number;
   nodes: WorkflowNode[];
   edges: WorkflowEdge[];

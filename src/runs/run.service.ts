@@ -11,10 +11,11 @@ import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
 import { backoffResumeAt } from '../common/utils/backoff';
 import type { WorkflowGraph } from '../common/types/graph';
-import { mergeRunInput } from '../common/utils/workflow-variables';
+import { validateRunInput } from '../common/utils/run-input';
 import { AppConfigService } from '../common/config/config.service';
 import type { Tenancy } from '../common/tenancy/tenancy-context.service';
 import { ByokValidationService } from '../engine/byok-validation.service';
+import { GraphValidatorService } from '../variables/graph-validator.service';
 import { EngineError, resolveMaxSteps } from '../engine/engine.types';
 import { resumeStateFromJson } from '../engine/resume-state';
 import { WorkflowEngine } from '../engine/workflow-engine';
@@ -49,6 +50,7 @@ export class RunService {
     private readonly eventBus: PgRunEventBus,
     private readonly cfg: AppConfigService,
     private readonly byok: ByokValidationService,
+    private readonly graphValidator: GraphValidatorService,
     private readonly wait: WaitService,
     private readonly metering: MeteringServiceImpl,
     @Optional()
@@ -93,6 +95,18 @@ export class RunService {
     const version = await this.versions.findOne({ where: { id: wf.currentVersionId } });
     const graph = version?.graph as WorkflowGraph | undefined;
     if (graph) {
+      const validation = this.graphValidator.validate(graph);
+      if (!validation.valid) {
+        // The exception filter forwards `message: string[]` to the client.
+        throw new BadRequestException({
+          message: [
+            'Workflow graph is invalid; fix validation errors before running',
+            ...validation.problems
+              .filter((p) => p.severity === 'error')
+              .map((p) => p.message),
+          ],
+        });
+      }
       const problems = await this.byok.validateGraph(tenancy.orgId, graph);
       if (problems.length > 0) {
         throw new BadRequestException(problems[0]!.message);
@@ -100,7 +114,13 @@ export class RunService {
     }
 
     const triggerSource = dto.triggerSource ?? 'manual';
-    const runInput = graph ? mergeRunInput(graph, dto.input) : dto.input ?? {};
+    const validated = validateRunInput(graph, dto.input, { mode: 'strict' });
+    if (!validated.ok) {
+      throw new BadRequestException({
+        message: validated.problems.map((p) => p.message),
+      });
+    }
+    const runInput = validated.input;
 
     const { runId } = await this.queue.enqueue({
       orgId: tenancy.orgId,

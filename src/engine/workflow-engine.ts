@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { buildInitialVars } from '../common/utils/workflow-variables';
+import { buildInitialParamBag } from '../common/utils/workflow-variables';
 import { randomUUID } from 'node:crypto';
 import type { WorkflowGraph } from '../common/types/graph';
 import { ContextResolver } from './context-resolver';
@@ -31,12 +31,20 @@ export class WorkflowEngine {
 
     let input = options.input;
     let outputs: Record<string, unknown> = {};
-    let vars: Record<string, unknown> = buildInitialVars(graph);
+    // Unified parameter bag: every declared parameter seeded from defaults,
+    // overridden by validated run input. `{{ input.x }}` and `{{ vars.x }}`
+    // both resolve from this bag (aliases).
+    let vars: Record<string, unknown> = buildInitialParamBag(graph, asRecord(input));
+    let loops: Record<string, number> = {};
 
     if (options.presetState) {
       input = options.presetState.input;
+      vars = {
+        ...buildInitialParamBag(graph, asRecord(input)),
+        ...options.presetState.vars,
+      };
       outputs = { ...options.presetState.outputs };
-      vars = { ...vars, ...options.presetState.vars };
+      loops = { ...migrateLegacyLoopCounters(options.presetState.vars), ...options.presetState.loops };
     }
 
     let currentNodeId =
@@ -91,6 +99,7 @@ export class WorkflowEngine {
         input,
         outputs,
         vars,
+        loops,
         resolverCtx,
       });
 
@@ -127,6 +136,7 @@ export class WorkflowEngine {
             input,
             outputs,
             vars,
+            loops,
             nextNodeId,
           }),
           output: nextNodeId ? undefined : result.data,
@@ -183,6 +193,7 @@ export class WorkflowEngine {
       input: unknown;
       outputs: Record<string, unknown>;
       vars: Record<string, unknown>;
+      loops: Record<string, number>;
       resolverCtx: Record<string, unknown>;
     },
   ): NodeExecutorContext {
@@ -190,6 +201,7 @@ export class WorkflowEngine {
       ...state,
       _outputs: state.outputs,
       _vars: state.vars,
+      _loops: state.loops,
       _resolverCtx: state.resolverCtx,
     };
 
@@ -226,6 +238,10 @@ export class WorkflowEngine {
           vars: bag._vars,
         });
       },
+      getLoopCount: (loopNodeId: string) => bag._loops[loopNodeId] ?? 0,
+      setLoopCount: (loopNodeId: string, count: number) => {
+        bag._loops[loopNodeId] = count;
+      },
       setNodeOutput: (nodeId: string, label: string, data: unknown) => {
         bag._outputs[label] = data;
         bag._outputs[nodeId] = data;
@@ -241,4 +257,26 @@ export class WorkflowEngine {
         this.resolver.evaluateCondition(expression, bag._resolverCtx),
     };
   }
+}
+
+function asRecord(value: unknown): Record<string, unknown> | undefined {
+  if (value && typeof value === 'object' && !Array.isArray(value)) {
+    return value as Record<string, unknown>;
+  }
+  return undefined;
+}
+
+/**
+ * Older resume states stored While counters in the vars bag as
+ * `<nodeId>.iteration`; lift them into the loops record so paused runs
+ * resume with their iteration counts intact.
+ */
+function migrateLegacyLoopCounters(vars: Record<string, unknown>): Record<string, number> {
+  const loops: Record<string, number> = {};
+  for (const [key, value] of Object.entries(vars ?? {})) {
+    if (key.endsWith('.iteration') && typeof value === 'number') {
+      loops[key.slice(0, -'.iteration'.length)] = value;
+    }
+  }
+  return loops;
 }

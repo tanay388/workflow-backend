@@ -3,7 +3,7 @@ import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource, IsNull } from 'typeorm';
 import { queryResultRows } from '../common/database/query-result';
 import type { WorkflowGraph } from '../common/types/graph';
-import { mergeRunInput } from '../common/utils/workflow-variables';
+import { validateRunInput } from '../common/utils/run-input';
 import { RUN_QUEUE, type RunQueue } from '../common/queue/run-queue.interface';
 import { WaitService } from '../approvals/wait.service';
 import { TriggerSubscription } from '../approvals/entities/trigger-subscription.entity';
@@ -121,7 +121,14 @@ export class TriggerIngestService {
       where: { id: wf.currentVersionId },
     });
     const graph = version?.graph as WorkflowGraph | undefined;
-    const runInput = graph ? mergeRunInput(graph, params.input ?? {}) : params.input ?? {};
+    const validated = validateRunInput(graph, params.input ?? {}, { mode: 'lenient' });
+    if (validated.problems.length > 0) {
+      this.logger.warn(
+        `Trigger ingest input problems for workflow ${params.workflowId}: ` +
+          validated.problems.map((p) => p.message).join('; '),
+      );
+    }
+    const runInput = validated.input;
 
     const { runId } = await this.runQueue.enqueue({
       orgId: params.orgId,

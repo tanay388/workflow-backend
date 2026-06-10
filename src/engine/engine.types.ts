@@ -22,6 +22,8 @@ export interface ResumeState {
   input: unknown;
   outputs: Record<string, unknown>;
   vars: Record<string, unknown>;
+  /** Engine-internal loop counters keyed by node id (not part of the vars namespace). */
+  loops?: Record<string, number>;
   /** Next node to execute after last_completed_node_id. */
   nextNodeId: string | null;
   cancelRequested?: boolean;
@@ -107,6 +109,8 @@ export interface NodeExecutorContext {
   getOutputs(): Record<string, unknown>;
   getVars(): Record<string, unknown>;
   setVar(name: string, value: unknown): void;
+  getLoopCount(nodeId: string): number;
+  setLoopCount(nodeId: string, count: number): void;
   setNodeOutput(nodeId: string, label: string, data: unknown): void;
   resolveConfig(config: Record<string, unknown>): Record<string, unknown>;
   evaluateCondition(expression: string): boolean;

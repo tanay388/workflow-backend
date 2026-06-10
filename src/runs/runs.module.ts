@@ -9,6 +9,7 @@ import { TriggersModule } from '../triggers/triggers.module';
 import { MeteringModule } from '../metering/metering.module';
 import { MeteringServiceImpl } from '../metering/metering.service';
 import { EngineModule } from '../engine/engine.module';
+import { VariablesModule } from '../variables/variables.module';
 import { WorkflowVersion } from '../workflows/entities/workflow-version.entity';
 import { Workflow } from '../workflows/entities/workflow.entity';
 import { RunStep } from './entities/run-step.entity';
@@ -27,6 +28,7 @@ import { RunsController, WorkflowRunController } from './runs.controller';
 @Module({
   imports: [
     MeteringModule,
+    VariablesModule,
     forwardRef(() => EngineModule),
     forwardRef(() => ApprovalsModule),
     forwardRef(() => TriggersModule),
