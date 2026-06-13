@@ -8,6 +8,7 @@ import { RUN_QUEUE, type RunQueue } from '../common/queue/run-queue.interface';
 import { WaitService } from '../approvals/wait.service';
 import { TriggerSubscription } from '../approvals/entities/trigger-subscription.entity';
 import { WorkflowRun } from '../runs/entities/workflow-run.entity';
+import { matchesEventFilter } from './event-match.util';
 import { Workflow } from '../workflows/entities/workflow.entity';
 import { WorkflowVersion } from '../workflows/entities/workflow-version.entity';
 import { WebhookDelivery } from './entities/webhook-delivery.entity';
@@ -22,14 +23,21 @@ export interface TriggerIngestParams {
   input?: unknown;
   runBy?: Record<string, unknown>;
   triggerMetadata?: Record<string, unknown> | null;
-  /** Resume this paused run instead of creating a new one. */
-  boundRunId?: string | null;
+  /** Resume these paused runs instead of creating a new one. */
+  boundRunIds?: string[] | null;
+  /**
+   * Whether to start a new run when there are no bound runs to resume.
+   * Workflow-level triggers pass true; wait-node bindings pass false so a
+   * stale binding can never spawn a fresh run. Defaults to true.
+   */
+  allowNewRun?: boolean;
 }
 
 export interface TriggerIngestResult {
   duplicate: boolean;
   runId: string | null;
   resumed: boolean;
+  resumedRunIds: string[];
 }
 
 @Injectable()
@@ -45,20 +53,26 @@ export class TriggerIngestService {
   async ingest(params: TriggerIngestParams): Promise<TriggerIngestResult> {
     const claim = await this.claimDelivery(params.orgId, params.idempotencyKey, params.source);
     if (claim.duplicate) {
-      return { duplicate: true, runId: claim.existingRunId, resumed: false };
+      return { duplicate: true, runId: claim.existingRunId, resumed: false, resumedRunIds: [] };
     }
 
-    let runId: string | null = null;
-    let resumed = false;
-
-    if (params.boundRunId) {
-      resumed = await this.tryResumePaused(params.boundRunId, params.orgId);
-      if (resumed) {
-        runId = params.boundRunId;
-      }
+    const bound = [...new Set(params.boundRunIds ?? [])];
+    const resumedRunIds: string[] = [];
+    for (const boundRunId of bound) {
+      const ok = await this.tryResumePaused(boundRunId, params.orgId, asEventRecord(params.input));
+      if (ok) resumedRunIds.push(boundRunId);
     }
 
-    if (!runId) {
+    let runId: string | null = resumedRunIds[0] ?? null;
+
+    if (!runId && bound.length > 0) {
+      this.logger.warn(
+        `Bound resume failed for run(s) ${bound.join(', ')} (source=${params.source}) — not starting a new run`,
+      );
+      return { duplicate: false, runId: null, resumed: false, resumedRunIds: [] };
+    }
+
+    if (!runId && params.allowNewRun !== false) {
       runId = await this.enqueueWorkflowRun(params);
     }
 
@@ -66,7 +80,7 @@ export class TriggerIngestService {
       await this.dataSource.getRepository(WebhookDelivery).update(claim.deliveryId, { runId });
     }
 
-    return { duplicate: false, runId, resumed };
+    return { duplicate: false, runId, resumed: resumedRunIds.length > 0, resumedRunIds };
   }
 
   private async claimDelivery(
@@ -98,14 +112,25 @@ export class TriggerIngestService {
     };
   }
 
-  private async tryResumePaused(runId: string, orgId: string): Promise<boolean> {
+  private async tryResumePaused(
+    runId: string,
+    orgId: string,
+    eventData?: Record<string, unknown>,
+  ): Promise<boolean> {
     const run = await this.dataSource.getRepository(WorkflowRun).findOne({
       where: { id: runId, orgId },
     });
     if (!run || run.status !== 'paused' || run.waitMode !== 'trigger_based') {
       return false;
     }
-    return this.wait.resume(runId, 'continue');
+    return this.wait.resume(runId, 'continue', {
+      data: {
+        outcome: 'continue',
+        resumed_at: new Date().toISOString(),
+        event: eventData ?? null,
+        ...(eventData ?? {}),
+      },
+    });
   }
 
   private async enqueueWorkflowRun(params: TriggerIngestParams): Promise<string | null> {
@@ -144,29 +169,35 @@ export class TriggerIngestService {
     return runId;
   }
 
-  /** Find a paused wait binding that matches an external Composio delivery. */
-  async findPausedBindingRun(
+  /** Find paused wait bindings that match an external Composio delivery. */
+  async findPausedBindingRuns(
     orgId: string,
     externalId: string,
     payload: Record<string, unknown>,
-  ): Promise<string | null> {
+  ): Promise<string[]> {
+    const eventPayload =
+      (payload.data as Record<string, unknown>) ??
+      (payload.payload as Record<string, unknown>) ??
+      payload;
+
     const subs = await this.dataSource.getRepository(TriggerSubscription).find({
-      where: [
-        { orgId, externalId, deletedAt: IsNull() },
-      ],
+      where: { orgId, externalId, deletedAt: IsNull() },
     });
 
+    const runIds: string[] = [];
     for (const sub of subs) {
       const runId = sub.config?.run_id as string | undefined;
-      if (runId) return runId;
+      if (runId && (await this.isPausedTriggerRun(runId, orgId))) {
+        runIds.push(runId);
+      }
     }
+    if (runIds.length > 0) return [...new Set(runIds)];
 
     const toolkit = String(payload.toolkit ?? payload.toolkit_slug ?? '').toLowerCase();
     const eventSlug = String(
       payload.event_slug ?? payload.trigger_slug ?? payload.triggerSlug ?? '',
     ).toLowerCase();
-
-    if (!toolkit || !eventSlug) return null;
+    if (!toolkit || !eventSlug) return [];
 
     const waitSubs = await this.dataSource
       .getRepository(TriggerSubscription)
@@ -176,8 +207,39 @@ export class TriggerIngestService {
       .andWhere("s.config->>'run_id' IS NOT NULL")
       .andWhere("lower(coalesce(s.config->>'toolkit','')) = :toolkit", { toolkit })
       .andWhere("lower(coalesce(s.config->>'event_slug','')) = :eventSlug", { eventSlug })
+      .orderBy('s.created_at', 'DESC')
       .getMany();
 
-    return (waitSubs[0]?.config?.run_id as string) ?? null;
+    for (const sub of waitSubs) {
+      const cfg = sub.config ?? {};
+      const runId = cfg.run_id as string | undefined;
+      if (!runId) continue;
+      const connectionId = cfg.connection_id as string | null | undefined;
+      if (connectionId && sub.connectedAccountId && connectionId !== sub.connectedAccountId) {
+        continue;
+      }
+      if (!matchesEventFilter(cfg.match as Record<string, unknown>, eventPayload)) {
+        continue;
+      }
+      if (await this.isPausedTriggerRun(runId, orgId)) {
+        runIds.push(runId);
+      }
+    }
+
+    return [...new Set(runIds)];
   }
+
+  private async isPausedTriggerRun(runId: string, orgId: string): Promise<boolean> {
+    const run = await this.dataSource.getRepository(WorkflowRun).findOne({
+      where: { id: runId, orgId },
+    });
+    return Boolean(run && run.status === 'paused' && run.waitMode === 'trigger_based');
+  }
+}
+
+function asEventRecord(input: unknown): Record<string, unknown> | undefined {
+  if (input && typeof input === 'object' && !Array.isArray(input)) {
+    return input as Record<string, unknown>;
+  }
+  return undefined;
 }

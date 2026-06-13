@@ -34,6 +34,18 @@ export class RefreshToken {
   @Column({ type: 'timestamptz', name: 'revoked_at', nullable: true })
   revokedAt: Date | null;
 
+  /** Successor token row issued when this token was rotated away. */
+  @Column({ type: 'uuid', name: 'replaced_by_id', nullable: true })
+  replacedById: string | null;
+
+  /**
+   * AES-encrypted raw successor token, kept so a reuse of this token within
+   * the rotation grace window can return the same successor instead of
+   * failing (reload / parallel-tab tolerance).
+   */
+  @Column({ type: 'bytea', name: 'successor_cipher', nullable: true })
+  successorCipher: Buffer | null;
+
   @CreateDateColumn({ type: 'timestamptz', name: 'created_at' })
   createdAt: Date;
 

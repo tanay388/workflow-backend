@@ -168,6 +168,12 @@ export const BUILTIN_NODE_TYPES: NodeTypeDescriptor[] = [
             toolkit: str('Toolkit'),
             event_slug: str('Event slug'),
             connection_id: str('Connection'),
+            trigger_config: {
+              type: 'object',
+              title: 'Trigger configuration',
+              description: 'Sent to Composio when the trigger instance is registered',
+              properties: {},
+            },
             match: { type: 'object', title: 'Match filter', properties: {} },
             timeout_minutes: { type: 'integer', title: 'Timeout (minutes)', default: 60 },
           },
@@ -188,6 +194,7 @@ export const BUILTIN_NODE_TYPES: NodeTypeDescriptor[] = [
       properties: {
         outcome: { type: 'string', title: 'Outcome' },
         resumed_at: { type: 'string', title: 'Resumed at' },
+        event: { type: 'object', title: 'Event payload (until_event resume)' },
       },
     },
   }),
@@ -210,6 +217,14 @@ export const BUILTIN_NODE_TYPES: NodeTypeDescriptor[] = [
         },
         model: { type: 'string', title: 'Model', default: 'gpt-4o' },
         temperature: { type: 'number', title: 'Temperature', default: 0.7 },
+        timeout_seconds: {
+          type: 'integer',
+          title: 'Timeout (seconds)',
+          description:
+            'Max wall-clock time for this agent step. Omit to use the platform default (120s).',
+          minimum: 1,
+          maximum: 600,
+        },
         instructions: str('System instructions'),
         prompt: str('User prompt', {
           description: 'Query sent to the agent; supports {{ input.* }} and {{ vars.* }}',

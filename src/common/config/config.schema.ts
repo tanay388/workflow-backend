@@ -62,6 +62,10 @@ export const configSchema = z.object({
   OTP_MAX_ATTEMPTS: z.coerce.number().int().positive().default(5),
   AUTH_RATE_LIMIT_MAX: z.coerce.number().int().positive().default(10),
   AUTH_RATE_LIMIT_WINDOW_MS: z.coerce.number().int().positive().default(900_000),
+  // Refresh fires on every page load with a session — far more often than
+  // credential endpoints, so it gets its own much looser bucket.
+  AUTH_REFRESH_RATE_LIMIT_MAX: z.coerce.number().int().positive().default(120),
+  AUTH_REFRESH_RATE_LIMIT_WINDOW_MS: z.coerce.number().int().positive().default(900_000),
 
   // ─── IAM (Phase 03) ─────────────────────────────────────────────────────
   FRONTEND_URL: z.string().url().default('http://localhost:3000'),
@@ -74,6 +78,8 @@ export const configSchema = z.object({
   ENGINE_EXECUTOR_POOL_SIZE: z.coerce.number().int().positive().default(5),
   ENGINE_DISPATCH_INTERVAL_MS: z.coerce.number().int().positive().default(1500),
   ENGINE_STALLED_MINUTES: z.coerce.number().int().positive().default(15),
+  ENGINE_AGENT_TIMEOUT_SECONDS: z.coerce.number().int().positive().default(120),
+  ENGINE_AGENT_TIMEOUT_MAX_SECONDS: z.coerce.number().int().positive().default(600),
 
   // ─── Scheduler (Phase 11) ─────────────────────────────────────────────
   SCHEDULER_TICK_INTERVAL_MS: z.coerce.number().int().positive().default(45_000),
@@ -81,6 +87,10 @@ export const configSchema = z.object({
   // ─── LLM / BYOK (Phase 08) ──────────────────────────────────────────────
   OPENAI_API_KEY: z.string().optional(),
   DEFAULT_PRICE_PER_MILLION_USD: z.coerce.number().positive().default(5),
+  AGENT_MAX_TOOLS_PER_TOOLKIT: z.coerce.number().int().positive().default(8),
+  CHAT_HISTORY_TOKEN_BUDGET: z.coerce.number().int().positive().default(16_000),
+  CHAT_RECENT_MESSAGES_KEEP: z.coerce.number().int().positive().default(10),
+  CHAT_SUMMARY_MODEL: z.string().default('gpt-4o-mini'),
 
   // ─── Composio / Connections (Phase 09) ─────────────────────────────────
   COMPOSIO_API_KEY: z.string().optional(),

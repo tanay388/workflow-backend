@@ -119,28 +119,48 @@ export class AgentRuntimeService {
     if (options?.onTextDelta && text) {
       await this.emitChunked(text, options.onTextDelta);
     }
-    const lastUsage = result.rawResponses.at(-1)?.usage;
-    const inputTokens =
-      lastUsage?.inputTokens ?? estimateTokens(config.instructions + userInput);
-    const outputTokens = lastUsage?.outputTokens ?? estimateTokens(text);
+    const loopCalls = (result.rawResponses ?? [])
+      .map((resp) => resp.usage)
+      .filter((usage): usage is NonNullable<typeof usage> => Boolean(usage))
+      .map((usage) => ({
+        inputTokens: usage.inputTokens ?? 0,
+        outputTokens: usage.outputTokens ?? 0,
+      }));
+
+    const inputTokens = loopCalls.reduce((sum, c) => sum + c.inputTokens, 0);
+    const outputTokens = loopCalls.reduce((sum, c) => sum + c.outputTokens, 0);
+    const fallbackInput = estimateTokens(config.instructions + userInput);
+    const fallbackOutput = estimateTokens(text);
+    const totalInput = inputTokens > 0 ? inputTokens : fallbackInput;
+    const totalOutput = outputTokens > 0 ? outputTokens : fallbackOutput;
 
     if (meter) {
-      await this.tokenUsage.record({
-        meter,
-        provider: resolved.provider,
-        model: resolved.modelName,
-        inputTokens,
-        outputTokens,
-        byok: resolved.byok,
-      });
+      if (loopCalls.length > 1) {
+        await this.tokenUsage.recordLoop({
+          meter,
+          provider: resolved.provider,
+          model: resolved.modelName,
+          byok: resolved.byok,
+          calls: loopCalls,
+        });
+      } else {
+        await this.tokenUsage.record({
+          meter,
+          provider: resolved.provider,
+          model: resolved.modelName,
+          inputTokens: totalInput,
+          outputTokens: totalOutput,
+          byok: resolved.byok,
+        });
+      }
     }
 
     return {
       text,
       structured: this.parseStructured(text, config.structured_output),
       tool_calls: [],
-      inputTokens,
-      outputTokens,
+      inputTokens: totalInput,
+      outputTokens: totalOutput,
       model: resolved.modelName,
       provider: resolved.provider,
     };

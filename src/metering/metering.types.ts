@@ -7,10 +7,21 @@ export interface MeterRecordInput {
   inputTokens: number;
   outputTokens: number;
   byok: boolean;
+  /** 0-based index for multi-step agent loop analytics rows. */
+  loopIndex?: number;
+}
+
+export interface MeterRecordLoopInput {
+  meter: MeterContext;
+  provider: string;
+  model: string;
+  byok: boolean;
+  calls: Array<{ inputTokens: number; outputTokens: number }>;
 }
 
 export interface MeteringService {
   record(input: MeterRecordInput): Promise<void>;
+  recordLoop(input: MeterRecordLoopInput): Promise<void>;
   rollupRunTotals(runId: string): Promise<void>;
 }
 

@@ -6,10 +6,12 @@ import { SkipTenancy } from '../common/decorators/skip-tenancy.decorator';
 import { Public } from './decorators/public.decorator';
 import { CurrentUser } from './decorators/current-user.decorator';
 import { AuthService } from './auth.service';
+import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { LoginDto } from './dto/login.dto';
 import { LogoutDto } from './dto/logout.dto';
 import { RefreshDto } from './dto/refresh.dto';
 import { ResendOtpDto } from './dto/resend-otp.dto';
+import { ResetPasswordDto } from './dto/reset-password.dto';
 import { SignupDto } from './dto/signup.dto';
 import { VerifyOtpDto } from './dto/verify-otp.dto';
 import type { AuthUser } from './types/auth.types';
@@ -57,9 +59,23 @@ export class AuthController {
   }
 
   @Public()
+  @Post('forgot-password')
+  forgotPassword(@Req() req: Request, @Body() dto: ForgotPasswordDto) {
+    this.rateLimit.consumeAuth('forgot-password', clientIp(req), dto.email);
+    return this.auth.forgotPassword(dto.email);
+  }
+
+  @Public()
+  @Post('reset-password')
+  resetPassword(@Req() req: Request, @Body() dto: ResetPasswordDto) {
+    this.rateLimit.consumeAuth('reset-password', clientIp(req), dto.email);
+    return this.auth.resetPassword(dto.email, dto.code, dto.password);
+  }
+
+  @Public()
   @Post('refresh')
   refresh(@Req() req: Request, @Body() dto: RefreshDto) {
-    this.rateLimit.consumeAuth('refresh', clientIp(req));
+    this.rateLimit.consumeRefresh(clientIp(req));
     return this.auth.refresh(dto.refreshToken);
   }
 

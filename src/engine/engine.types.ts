@@ -124,7 +124,12 @@ export type NodeExecutor = (
 export class EngineError extends Error {
   constructor(
     message: string,
-    readonly code: 'max_steps' | 'node_failed' | 'unsupported' | 'invalid_input' = 'node_failed',
+    readonly code:
+      | 'max_steps'
+      | 'node_failed'
+      | 'node_timeout'
+      | 'unsupported'
+      | 'invalid_input' = 'node_failed',
   ) {
     super(message);
     this.name = 'EngineError';

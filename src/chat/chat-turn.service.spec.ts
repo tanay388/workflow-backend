@@ -1,5 +1,5 @@
-import { AgentMemoryService } from '../common/agent/agent-memory.service';
 import { ChatTurnService } from './chat-turn.service';
+import { ConversationHistoryService } from './conversation-history.service';
 import { ConversationService } from './conversation.service';
 import { Conversation } from './entities/conversation.entity';
 import { ConversationMessage } from './entities/conversation-message.entity';
@@ -15,7 +15,10 @@ describe('ChatTurnService', () => {
       title: null,
       source: 'builder_test',
     })),
-    loadAgentHistory: jest.fn(async () => []),
+  };
+
+  const history = {
+    buildAgentHistory: jest.fn(async () => []),
   };
 
   const queue = { enqueue: jest.fn(async () => ({ runId: 'run-1' })) };
@@ -49,11 +52,9 @@ describe('ChatTurnService', () => {
   };
   const messages = { update: jest.fn() };
   const byok = { validateGraph: jest.fn(async () => []) };
-  const memory = new AgentMemoryService();
-
   const svc = new ChatTurnService(
     conversations as unknown as ConversationService,
-    memory,
+    history as unknown as ConversationHistoryService,
     queue as never,
     workflows as never,
     versions as never,

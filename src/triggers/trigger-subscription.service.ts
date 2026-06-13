@@ -14,6 +14,7 @@ import {
   TriggerSubscription,
   type TriggerSubscriptionStatus,
 } from '../approvals/entities/trigger-subscription.entity';
+import { disableInstanceIfUnshared } from '../approvals/external-trigger-cleanup.util';
 import { CreateComposioTriggerDto } from './dto/trigger.dto';
 import { TriggerIngestService } from './trigger-ingest.service';
 
@@ -110,7 +111,7 @@ export class TriggerSubscriptionService {
     }
 
     if (row.externalId) {
-      await this.composio.disableTriggerInstance(row.externalId);
+      await disableInstanceIfUnshared(this.subs, this.composio, row.externalId, row.id);
     }
     row.status = 'disabled';
     row.deletedAt = new Date();

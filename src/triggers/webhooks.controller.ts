@@ -79,10 +79,9 @@ export class WebhooksController {
       return { ok: true, ignored: true };
     }
 
-    const boundRunId = sub.isWorkflowTrigger()
-      ? await this.ingest.findPausedBindingRun(sub.orgId, externalId, payload)
-      : ((sub.config?.run_id as string | undefined) ??
-        (await this.ingest.findPausedBindingRun(sub.orgId, externalId, payload)));
+    // One delivery may wake several paused runs bound to this trigger; a new
+    // run is only started for workflow-level triggers with nothing to resume.
+    const boundRunIds = await this.ingest.findPausedBindingRuns(sub.orgId, externalId, payload);
 
     const eventPayload =
       (payload.data as Record<string, unknown>) ??
@@ -103,7 +102,8 @@ export class WebhooksController {
         external_id: externalId,
         delivery_id: idempotencyKey,
       },
-      boundRunId: boundRunId ?? null,
+      boundRunIds,
+      allowNewRun: sub.isWorkflowTrigger(),
     });
 
     return { ok: true };
@@ -170,7 +170,7 @@ export class WebhooksController {
       triggerSource: 'platform_event',
       input: dto.input ?? {},
       runBy: { type: 'trigger', id: 'internal', label: 'Platform event' },
-      boundRunId: dto.bound_run_id ?? null,
+      boundRunIds: dto.bound_run_id ? [dto.bound_run_id] : null,
     });
 
     return { ok: true };

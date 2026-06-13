@@ -1,5 +1,7 @@
 import { Module, forwardRef } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { ConnectionsModule } from '../connections/connections.module';
+import { Connection } from '../connections/entities/connection.entity';
 import { WorkflowRun } from '../runs/entities/workflow-run.entity';
 import { Workflow } from '../workflows/entities/workflow.entity';
 import { EngineModule } from '../engine/engine.module';
@@ -18,7 +20,9 @@ import { WaitService } from './wait.service';
       TriggerSubscription,
       WorkflowRun,
       Workflow,
+      Connection,
     ]),
+    ConnectionsModule,
     forwardRef(() => EngineModule),
   ],
   controllers: [ApprovalsController, PublicActionsController],

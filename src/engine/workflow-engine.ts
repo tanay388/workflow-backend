@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { AppConfigService } from '../common/config/config.service';
 import { buildInitialParamBag } from '../common/utils/workflow-variables';
 import { randomUUID } from 'node:crypto';
 import type { WorkflowGraph } from '../common/types/graph';
@@ -14,13 +15,16 @@ import {
   type NodeExecutorContext,
   type ResumeState,
 } from './engine.types';
+import { executeWithTimeout, NodeTimeoutError, resolveNodeTimeoutMs } from './node-timeout';
 import { NodeRegistry } from './node-registry';
+import { sanitizeNodeOutput } from './output-snapshot';
 
 @Injectable()
 export class WorkflowEngine {
   constructor(
     private readonly registry: NodeRegistry,
     private readonly resolver: ContextResolver,
+    private readonly cfg: AppConfigService,
   ) {}
 
   async run(options: EngineRunOptions): Promise<EngineRunResult> {
@@ -113,9 +117,18 @@ export class WorkflowEngine {
       });
 
       try {
-        const result = await executor(ctx, node);
-        lastOutput = result.data;
-        ctx.setNodeOutput(node.id, node.label, result.data);
+        const timeoutMs = resolveNodeTimeoutMs(node, {
+          agentSeconds: this.cfg.engineAgentTimeoutSeconds,
+          agentMaxSeconds: this.cfg.engineAgentTimeoutMaxSeconds,
+        });
+        const result = await executeWithTimeout(
+          executor(ctx, node),
+          timeoutMs,
+          () => new NodeTimeoutError(node.label, timeoutMs),
+        );
+        const safeOutput = sanitizeNodeOutput(result.data, outputs);
+        lastOutput = safeOutput;
+        ctx.setNodeOutput(node.id, node.label, safeOutput);
 
         const edge = findNextEdge(graph, node.id, result.port);
         const nextNodeId = edge?.target_node_id ?? null;
@@ -127,7 +140,7 @@ export class WorkflowEngine {
           nodeLabel: node.label,
           seq,
           status: 'completed',
-          output: result.data,
+          output: safeOutput,
         });
 
         await options.onBoundary?.({
@@ -139,11 +152,11 @@ export class WorkflowEngine {
             loops,
             nextNodeId,
           }),
-          output: nextNodeId ? undefined : result.data,
+          output: nextNodeId ? undefined : safeOutput,
         });
 
         if (!nextNodeId) {
-          return { status: 'completed', output: result.data };
+          return { status: 'completed', output: safeOutput };
         }
 
         currentNodeId = nextNodeId;
@@ -243,8 +256,9 @@ export class WorkflowEngine {
         bag._loops[loopNodeId] = count;
       },
       setNodeOutput: (nodeId: string, label: string, data: unknown) => {
-        bag._outputs[label] = data;
-        bag._outputs[nodeId] = data;
+        const stored = sanitizeNodeOutput(data, bag._outputs);
+        bag._outputs[label] = stored;
+        bag._outputs[nodeId] = stored;
         bag._resolverCtx = this.resolver.buildResolverContext({
           input: bag.input,
           outputs: bag._outputs,

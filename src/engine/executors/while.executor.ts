@@ -1,5 +1,6 @@
 import type { WorkflowNode } from '../../common/types/graph';
 import { EngineError, type NodeExecutor } from '../engine.types';
+import { snapshotOutputs } from '../output-snapshot';
 
 export const executeWhile: NodeExecutor = async (ctx, node: WorkflowNode) => {
   const config = node.config ?? {};
@@ -15,9 +16,15 @@ export const executeWhile: NodeExecutor = async (ctx, node: WorkflowNode) => {
   const current = ctx.getLoopCount(node.id);
 
   if (current >= maxIterations) {
+    ctx.setLoopCount(node.id, 0);
     return {
       port: 'end',
-      data: { iterations: current, reason: 'max_iterations', passthrough: ctx.getOutputs() },
+      data: {
+        iterations: current,
+        reason: 'max_iterations',
+        warning: `Loop exited after reaching max iterations (${maxIterations})`,
+        passthrough: snapshotOutputs(ctx.getOutputs()),
+      },
     };
   }
 
@@ -26,12 +33,17 @@ export const executeWhile: NodeExecutor = async (ctx, node: WorkflowNode) => {
     ctx.setLoopCount(node.id, current + 1);
     return {
       port: 'loop',
-      data: { iterations: current + 1, passthrough: ctx.getOutputs() },
+      data: { iterations: current + 1, passthrough: snapshotOutputs(ctx.getOutputs()) },
     };
   }
 
+  ctx.setLoopCount(node.id, 0);
   return {
     port: 'end',
-    data: { iterations: current, passthrough: ctx.getOutputs() },
+    data: {
+      iterations: current,
+      reason: 'condition_false',
+      passthrough: snapshotOutputs(ctx.getOutputs()),
+    },
   };
 };

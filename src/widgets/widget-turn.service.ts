@@ -7,7 +7,7 @@ import {
 } from '@nestjs/common';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import { DataSource, IsNull, Repository } from 'typeorm';
-import { AgentMemoryService } from '../common/agent/agent-memory.service';
+import { ConversationHistoryService } from '../chat/conversation-history.service';
 import { RUN_QUEUE, type RunQueue } from '../common/queue/run-queue.interface';
 import type { Tenancy } from '../common/tenancy/tenancy-context.service';
 import { validateRunInput } from '../common/utils/run-input';
@@ -33,7 +33,7 @@ export interface WidgetTurnResult {
 export class WidgetTurnService {
   constructor(
     private readonly conversations: ConversationService,
-    private readonly memory: AgentMemoryService,
+    private readonly history: ConversationHistoryService,
     private readonly rateLimit: WidgetRateLimitService,
     private readonly formSubmissions: FormSubmissionService,
     @Inject(RUN_QUEUE) private readonly queue: RunQueue,
@@ -136,7 +136,7 @@ export class WidgetTurnService {
     const trimmed = content.trim();
     if (!trimmed) throw new BadRequestException('Message content is required');
 
-    const [messageCount, conv, wf, formFromDb, priorHistory] = await Promise.all([
+    const [messageCount, conv, wf, formFromDb] = await Promise.all([
       this.rateLimit.countTodayMessages(visitor.id),
       this.convRepo.findOne({
         where: {
@@ -163,7 +163,6 @@ export class WidgetTurnService {
             widget.workflowId,
             widget.id,
           ),
-      this.conversations.loadAgentHistory(conversationId),
     ]);
 
     if (widget.rateLimitPerDay > 0 && messageCount >= widget.rateLimitPerDay) {
@@ -183,7 +182,7 @@ export class WidgetTurnService {
       }
     }
 
-    const agentHistory = this.memory.trimHistory(priorHistory);
+    const agentHistory = await this.history.buildAgentHistory(conversationId, widget.orgId);
 
     let assistantMsgId: string;
 

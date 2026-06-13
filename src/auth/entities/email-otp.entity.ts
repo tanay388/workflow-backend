@@ -11,6 +11,7 @@ import { User } from './user.entity';
 
 export enum EmailOtpPurpose {
   SIGNUP_VERIFY = 'signup_verify',
+  PASSWORD_RESET = 'password_reset',
 }
 
 /** Hashed, expiring email OTP codes (Phase 02 proposal — TRD §4.1 has no OTP table). */

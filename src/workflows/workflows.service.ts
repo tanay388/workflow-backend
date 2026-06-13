@@ -8,6 +8,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { In, IsNull, Repository } from 'typeorm';
 import { User } from '../auth/entities/user.entity';
 import { createEmptyGraph } from '../common/types/graph';
+import { normalizeGraphNodes } from '../common/utils/graph-normalize';
 import { normalizeGraphParameters } from '../common/utils/workflow-variables';
 import type { Tenancy } from '../common/tenancy/tenancy-context.service';
 import { GraphValidatorService } from '../variables/graph-validator.service';
@@ -110,7 +111,7 @@ export class WorkflowsService {
 
     if (dto.graph !== undefined) {
       // Canonicalize to the unified parameter model (lazy migration on save).
-      const graph = normalizeGraphParameters(dto.graph);
+      const graph = normalizeGraphNodes(normalizeGraphParameters(dto.graph));
       const validation = this.graphValidator.validate(graph);
       if (!validation.valid) {
         throw new BadRequestException({

@@ -1,7 +1,7 @@
 import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import { DataSource, IsNull, Repository } from 'typeorm';
-import { AgentMemoryService } from '../common/agent/agent-memory.service';
+import { ConversationHistoryService } from './conversation-history.service';
 import { RUN_QUEUE, type RunQueue } from '../common/queue/run-queue.interface';
 import type { Tenancy } from '../common/tenancy/tenancy-context.service';
 import { validateRunInput } from '../common/utils/run-input';
@@ -22,7 +22,7 @@ export interface SendTurnResult {
 export class ChatTurnService {
   constructor(
     private readonly conversations: ConversationService,
-    private readonly memory: AgentMemoryService,
+    private readonly history: ConversationHistoryService,
     @Inject(RUN_QUEUE) private readonly queue: RunQueue,
     @InjectRepository(Workflow) private readonly workflows: Repository<Workflow>,
     @InjectRepository(WorkflowVersion) private readonly versions: Repository<WorkflowVersion>,
@@ -67,8 +67,10 @@ export class ChatTurnService {
       }
     }
 
-    const priorHistory = await this.conversations.loadAgentHistory(conversationId);
-    const agentHistory = this.memory.trimHistory(priorHistory);
+    const agentHistory = await this.history.buildAgentHistory(
+      conversationId,
+      tenancy.orgId!,
+    );
 
     let userMsgId: string;
     let assistantMsgId: string;

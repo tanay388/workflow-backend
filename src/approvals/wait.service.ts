@@ -1,20 +1,22 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
-import { DataSource, Repository } from 'typeorm';
+import { DataSource, IsNull, Repository } from 'typeorm';
+import { ComposioService } from '../connections/composio.service';
+import { Connection } from '../connections/entities/connection.entity';
 import { queryResultRows } from '../common/database/query-result';
 import type { WorkflowGraph, WorkflowNode } from '../common/types/graph';
 import { delayToResumeAt, localDateTimeToUtc, type DelayUnit } from '../common/utils/time';
 import { resumeStateFromJson } from '../engine/resume-state';
 import type { ResumeState } from '../engine/engine.types';
-import { findNextEdge, RunPausedError } from '../engine/engine.types';
+import { RunPausedError } from '../engine/engine.types';
 import { Workflow } from '../workflows/entities/workflow.entity';
 import { WorkflowRun, type WaitMode as RunWaitMode } from '../runs/entities/workflow-run.entity';
 import { ActionTokenService } from './action-token.service';
 import { ApprovalRequest } from './entities/approval-request.entity';
 import { TriggerSubscription } from './entities/trigger-subscription.entity';
+import { disableInstanceIfUnshared } from './external-trigger-cleanup.util';
 import {
   normalizeWaitMode,
-  outcomeToPort,
   type WaitOutcome,
   type WaitPauseState,
   type WaitResumeState,
@@ -29,8 +31,10 @@ export class WaitService {
     @InjectRepository(Workflow) private readonly workflows: Repository<Workflow>,
     @InjectRepository(ApprovalRequest) private readonly approvals: Repository<ApprovalRequest>,
     @InjectRepository(TriggerSubscription) private readonly subscriptions: Repository<TriggerSubscription>,
+    @InjectRepository(Connection) private readonly connections: Repository<Connection>,
     @InjectDataSource() private readonly dataSource: DataSource,
     private readonly actionTokens: ActionTokenService,
+    private readonly composio: ComposioService,
   ) {}
 
   async consumeWaitResume(
@@ -75,10 +79,12 @@ export class WaitService {
       resumeAt = delayToResumeAt(value, unit);
     } else if (mode === 'until_datetime') {
       const until = (params.config.until as { datetime?: string; timezone?: string }) ?? {};
-      const datetime =
-        until.datetime ??
-        (params.config.datetime as string | undefined) ??
-        new Date(Date.now() + 60_000).toISOString();
+      const datetime = String(
+        until.datetime ?? (params.config.datetime as string | undefined) ?? '',
+      ).trim();
+      if (!datetime) {
+        throw new Error('Wait until datetime requires a datetime value');
+      }
       const timezone = until.timezone ?? (params.config.timezone as string) ?? 'UTC';
       resumeAt = localDateTimeToUtc(datetime, timezone);
       if (resumeAt.getTime() <= Date.now()) {
@@ -139,17 +145,6 @@ export class WaitService {
       return this.guardedRequeueBackoff(runId);
     }
 
-    const version = await this.dataSource.query(
-      `SELECT graph FROM workflow_versions WHERE id = $1`,
-      [run.workflowVersionId],
-    );
-    const graph = version[0]?.graph as WorkflowGraph | undefined;
-    if (!graph) return false;
-
-    const port = outcomeToPort(outcome);
-    const edge = findNextEdge(graph, waitPause.nodeId, port);
-    const nextNodeId = edge?.target_node_id ?? null;
-
     const waitResume: WaitResumeState = {
       nodeId: waitPause.nodeId,
       port: outcome,
@@ -184,6 +179,7 @@ export class WaitService {
     const rows = queryResultRows<{ id: string }>(result);
     if (rows.length === 0) return false;
 
+    await this.cleanupEventBinding(runId, waitPause.nodeId);
     await this.dataSource.query(`SELECT pg_notify('run_enqueued', $1)`, [runId]);
     return true;
   }
@@ -280,26 +276,124 @@ export class WaitService {
     return this.approvals.save(saved);
   }
 
+  /**
+   * Create the run ↔ trigger binding for an until_event wait and register the
+   * Composio trigger instance. Hard-fails the run instead of writing a
+   * pending binding: a binding without an external instance id can never be
+   * reached by the webhook resolver, so the run would silently sit until its
+   * timeout.
+   */
   private async registerEventBinding(
     run: WorkflowRun,
     node: WorkflowNode,
     event: Record<string, unknown>,
   ): Promise<void> {
+    const toolkit = typeof event.toolkit === 'string' ? event.toolkit.toLowerCase() : '';
+    const eventSlug = typeof event.event_slug === 'string' ? event.event_slug : '';
+    const connectionId = (event.connection_id as string | null) ?? null;
+    const match = asRecord(event.match) ?? {};
+    // Instance configuration (what Composio should watch, per the trigger
+    // type's config schema) is a different contract from the local payload
+    // `match` filter; legacy graphs only had `match`, so fall back to it.
+    const triggerConfig = asRecord(event.trigger_config) ?? match;
+
+    if (!toolkit || !eventSlug) {
+      throw new Error('Wait "until event" requires a toolkit and event slug');
+    }
+    if (!connectionId) {
+      throw new Error(
+        'Wait "until event" requires a connected account — select a connection on the Wait node',
+      );
+    }
+    if (!this.composio.isConfigured()) {
+      throw new Error('Composio is not configured on this server (COMPOSIO_API_KEY)');
+    }
+
+    const conn = await this.connections.findOne({
+      where: {
+        id: connectionId,
+        orgId: run.orgId,
+        workspaceId: run.workspaceId,
+        deletedAt: IsNull(),
+      },
+    });
+    if (!conn?.composioConnectionId || conn.status !== 'connected') {
+      throw new Error(
+        'Wait "until event" connection is not connected — reconnect it on the Connections page',
+      );
+    }
+
+    let external: { id: string; status?: string };
+    try {
+      external = await this.composio.upsertTriggerInstance(
+        eventSlug,
+        conn.composioConnectionId,
+        triggerConfig,
+      );
+    } catch (err) {
+      throw new Error(
+        `Failed to register Composio trigger ${eventSlug}: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+    }
+
     const sub = this.subscriptions.create({
       orgId: run.orgId,
       workspaceId: run.workspaceId,
       workflowId: run.workflowId,
       kind: 'composio_event',
+      connectedAccountId: connectionId,
+      toolkit,
+      eventSlug,
       config: {
         run_id: run.id,
         node_id: node.id,
-        toolkit: event.toolkit ?? null,
-        event_slug: event.event_slug ?? null,
-        connection_id: event.connection_id ?? null,
-        match: event.match ?? {},
+        toolkit,
+        event_slug: eventSlug,
+        connection_id: connectionId,
+        match,
+        trigger_config: triggerConfig,
       },
+      externalId: external.id,
+      status: 'active',
     });
+
     await this.subscriptions.save(sub);
     this.logger.debug(`Registered event binding ${sub.id} for run ${run.id} node ${node.id}`);
   }
+
+  private async cleanupEventBinding(runId: string, nodeId: string): Promise<void> {
+    const rows = await this.subscriptions
+      .createQueryBuilder('s')
+      .where("s.config->>'run_id' = :runId", { runId })
+      .andWhere("s.config->>'node_id' = :nodeId", { nodeId })
+      .andWhere('s.deleted_at IS NULL')
+      .getMany();
+
+    for (const row of rows) {
+      if (row.externalId) {
+        const disabled = await disableInstanceIfUnshared(
+          this.subscriptions,
+          this.composio,
+          row.externalId,
+          row.id,
+        );
+        if (!disabled) {
+          this.logger.debug(
+            `Kept Composio instance ${row.externalId} — still referenced by another subscription`,
+          );
+        }
+      }
+      row.status = 'disabled';
+      row.deletedAt = new Date();
+      await this.subscriptions.save(row);
+    }
+  }
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
 }

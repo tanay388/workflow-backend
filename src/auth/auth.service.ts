@@ -6,9 +6,10 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { User } from './entities/user.entity';
+import { EmailOtpPurpose } from './entities/email-otp.entity';
 import { OtpService } from './otp.service';
 import { PasswordService } from './password.service';
-import { TokenService } from './token.service';
+import { InvalidRefreshTokenError, TokenService } from './token.service';
 import type { AuthResponse, AuthUser } from './types/auth.types';
 import { LoginDto } from './dto/login.dto';
 import { SignupDto } from './dto/signup.dto';
@@ -72,25 +73,59 @@ export class AuthService {
   }
 
   async refresh(refreshToken: string): Promise<AuthResponse> {
+    let rotated: { userId: string; refreshToken: string };
     try {
-      const { userId, refreshToken: nextRefresh } =
-        await this.tokens.rotateRefreshToken(refreshToken);
-      const user = await this.users.findOne({ where: { id: userId } });
-      if (!user) throw new UnauthorizedException('Invalid refresh token');
-      const accessToken = this.tokens.signAccessToken(this.toAuthUser(user));
-      return {
-        accessToken,
-        refreshToken: nextRefresh,
-        user: this.toAuthUser(user),
-      };
-    } catch {
-      throw new UnauthorizedException('Invalid refresh token');
+      rotated = await this.tokens.rotateRefreshToken(refreshToken);
+    } catch (err) {
+      if (err instanceof InvalidRefreshTokenError) {
+        throw new UnauthorizedException('Invalid refresh token');
+      }
+      // Transient failures (DB unavailable during a restart, …) must surface
+      // as 5xx — a 401 here would make clients discard a still-valid token.
+      throw err;
     }
+
+    const user = await this.users.findOne({ where: { id: rotated.userId } });
+    if (!user) throw new UnauthorizedException('Invalid refresh token');
+    const accessToken = this.tokens.signAccessToken(this.toAuthUser(user));
+    return {
+      accessToken,
+      refreshToken: rotated.refreshToken,
+      user: this.toAuthUser(user),
+    };
   }
 
   async logout(refreshToken: string): Promise<{ message: string }> {
     await this.tokens.revokeRefreshToken(refreshToken);
     return { message: 'Logged out' };
+  }
+
+  async forgotPassword(email: string): Promise<{ message: string }> {
+    const message =
+      'If an account exists for that email, we sent a password reset code.';
+    const user = await this.users.findOne({ where: { email: email.toLowerCase() } });
+    if (!user?.emailVerifiedAt) {
+      return { message };
+    }
+    await this.otps.createAndSend(
+      user.id,
+      user.email,
+      user.name,
+      EmailOtpPurpose.PASSWORD_RESET,
+    );
+    return { message };
+  }
+
+  async resetPassword(
+    email: string,
+    code: string,
+    password: string,
+  ): Promise<{ message: string }> {
+    const user = await this.findByEmail(email);
+    await this.verifyOtpForUser(user, code, EmailOtpPurpose.PASSWORD_RESET);
+    user.passwordHash = await this.passwords.hash(password);
+    await this.users.save(user);
+    return { message: 'Password updated. You can now sign in.' };
   }
 
   async getUserById(id: string): Promise<AuthUser | null> {
@@ -104,9 +139,13 @@ export class AuthService {
     return user;
   }
 
-  private async verifyOtpForUser(user: User, code: string): Promise<void> {
+  private async verifyOtpForUser(
+    user: User,
+    code: string,
+    purpose: EmailOtpPurpose = EmailOtpPurpose.SIGNUP_VERIFY,
+  ): Promise<void> {
     try {
-      await this.otps.verify(user.id, code);
+      await this.otps.verify(user.id, code, purpose);
     } catch (err) {
       const code = err instanceof Error ? err.message : 'OTP_INVALID';
       if (code === 'OTP_EXPIRED') throw new UnauthorizedException('Verification code expired');

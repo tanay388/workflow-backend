@@ -80,10 +80,13 @@ describeWithDb('Auth (e2e)', () => {
     const nextRefresh = refreshed.body.refreshToken as string;
     expect(nextRefresh).not.toBe(refreshToken);
 
-    await request(app.getHttpServer())
+    // Replaying the just-rotated token within the grace window returns the
+    // same successor (reload / parallel-tab tolerance) instead of failing.
+    const replay = await request(app.getHttpServer())
       .post('/auth/refresh')
       .send({ refreshToken })
-      .expect(401);
+      .expect(201);
+    expect(replay.body.refreshToken).toBe(nextRefresh);
 
     await request(app.getHttpServer())
       .post('/auth/logout')
@@ -93,6 +96,13 @@ describeWithDb('Auth (e2e)', () => {
     await request(app.getHttpServer())
       .post('/auth/refresh')
       .send({ refreshToken: nextRefresh })
+      .expect(401);
+
+    // Logout closes the whole chain: grace replay of the predecessor must
+    // fail once its successor is revoked.
+    await request(app.getHttpServer())
+      .post('/auth/refresh')
+      .send({ refreshToken })
       .expect(401);
   },
     30_000,

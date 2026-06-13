@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import type { Tool } from '@openai/agents';
+import { AppConfigService } from '../common/config/config.service';
 import type { Tenancy } from '../common/tenancy/tenancy-context.service';
 import { ConnectionUnavailableError } from './connection.errors';
 import { ConnectionHealthService } from './connection-health.service';
@@ -20,6 +21,7 @@ export class ToolResolverService {
     private readonly connections: ConnectionsService,
     private readonly composio: ComposioService,
     private readonly health: ConnectionHealthService,
+    private readonly cfg: AppConfigService,
   ) {}
 
   async requireConnected(
@@ -52,10 +54,23 @@ export class ToolResolverService {
       }
       if (!connectionId) continue;
       const row = await this.requireConnected(tenancy, connectionId);
-      const slugs = binding.actions ?? [];
+      const maxTools = this.cfg.agentMaxToolsPerToolkit;
+      let slugs = (binding.actions ?? []).filter(Boolean);
       if (!slugs.length) {
         const catalog = await this.composio.listToolkitTools(toolkit);
-        slugs.push(...catalog.slice(0, 50).map((t) => t.slug));
+        const available = catalog.map((t) => t.slug);
+        slugs = available.slice(0, maxTools);
+        if (available.length > maxTools) {
+          this.logger.warn(
+            `Toolkit ${toolkit} has ${available.length} tools; capped to ${maxTools}. ` +
+              'Select explicit actions in the agent node to control tool exposure.',
+          );
+        }
+      } else if (slugs.length > maxTools) {
+        this.logger.warn(
+          `Toolkit ${toolkit} binding lists ${slugs.length} actions; capped to ${maxTools}`,
+        );
+        slugs = slugs.slice(0, maxTools);
       }
       const composioTools = await this.composio.getAgentTools(
         row.composioEntityId,

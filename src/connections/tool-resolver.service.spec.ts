@@ -23,10 +23,12 @@ describe('ToolResolverService', () => {
     };
     const health = { refreshIfStale: jest.fn() };
     const composio = { listToolkitTools: jest.fn(), getAgentTools: jest.fn() };
+    const cfg = { agentMaxToolsPerToolkit: 8 };
     const svc = new ToolResolverService(
       connections as never,
       composio as never,
       health as never,
+      cfg as never,
     );
 
     await expect(svc.requireConnected(tenancy as never, 'c1')).rejects.toBeInstanceOf(

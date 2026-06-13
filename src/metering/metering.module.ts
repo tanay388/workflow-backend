@@ -3,6 +3,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { User } from '../auth/entities/user.entity';
 import { Membership } from '../iam/entities/membership.entity';
 import { Organization } from '../iam/entities/organization.entity';
+import { ModelsModule } from '../models/models.module';
 import { RunStep } from '../runs/entities/run-step.entity';
 import { WorkflowRun } from '../runs/entities/workflow-run.entity';
 import { AlertSweepService } from './alert-sweep.service';
@@ -20,6 +21,7 @@ import { UsageQueryService } from './usage-query.service';
 
 @Module({
   imports: [
+    ModelsModule,
     TypeOrmModule.forFeature([
       TokenUsage,
       UsageDaily,

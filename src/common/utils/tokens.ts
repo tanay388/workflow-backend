@@ -19,3 +19,16 @@ export function estimateTokens(text: string): number {
 export function costUsd(totalTokens: number, pricePerMillionUsd: number): number {
   return (totalTokens * pricePerMillionUsd) / 1_000_000;
 }
+
+/** Split input/output pricing from the model catalog. */
+export function splitCostUsd(
+  inputTokens: number,
+  outputTokens: number,
+  inputPricePerMillionUsd: number,
+  outputPricePerMillionUsd: number,
+): number {
+  return (
+    (inputTokens * inputPricePerMillionUsd + outputTokens * outputPricePerMillionUsd) /
+    1_000_000
+  );
+}

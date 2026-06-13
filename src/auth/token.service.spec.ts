@@ -5,7 +5,7 @@ import type { DataSource, Repository } from 'typeorm';
 import { AppConfigService } from '../common/config/config.service';
 import { CryptoService } from '../common/crypto/crypto.service';
 import { RefreshToken } from './entities/refresh-token.entity';
-import { TokenService } from './token.service';
+import { InvalidRefreshTokenError, TokenService } from './token.service';
 
 describe('TokenService', () => {
   let service: TokenService;
@@ -41,7 +41,11 @@ describe('TokenService', () => {
         },
         {
           provide: CryptoService,
-          useValue: { hashSha256: (v: string) => `hash:${v}` },
+          useValue: {
+            hashSha256: (v: string) => `hash:${v}`,
+            encrypt: (v: string) => Buffer.from(`enc:${v}`),
+            decrypt: (b: Buffer) => b.toString('utf8').replace(/^enc:/, ''),
+          },
         },
         { provide: getRepositoryToken(RefreshToken), useValue: refreshRepo },
         {
@@ -49,7 +53,8 @@ describe('TokenService', () => {
           useValue: {
             transaction: async (fn: (em: { getRepository: () => typeof refreshRepo }) => unknown) =>
               fn({ getRepository: () => refreshRepo }),
-          } as Pick<DataSource, 'transaction'>,
+            query: jest.fn(async () => []),
+          } as Pick<DataSource, 'transaction' | 'query'>,
         },
       ],
     }).compile();
@@ -85,7 +90,78 @@ describe('TokenService', () => {
     expect(result.userId).toBe('user-1');
     expect(result.refreshToken).toBeTruthy();
     expect(refreshRepo.save).toHaveBeenCalledWith(
-      expect.objectContaining({ revokedAt: expect.any(Date) }),
+      expect.objectContaining({
+        revokedAt: expect.any(Date),
+        successorCipher: expect.any(Buffer),
+      }),
+    );
+  });
+
+  it('returns the same successor when a rotated token is replayed within grace', async () => {
+    refreshRepo.findOne
+      .mockResolvedValueOnce({
+        id: 'rt-old',
+        userId: 'user-1',
+        tokenHash: 'hash:old',
+        expiresAt: new Date(Date.now() + 60_000),
+        revokedAt: new Date(Date.now() - 5_000),
+        replacedById: 'rt-new',
+        successorCipher: Buffer.from('enc:successor-raw'),
+      } as RefreshToken)
+      .mockResolvedValueOnce({
+        id: 'rt-new',
+        userId: 'user-1',
+        expiresAt: new Date(Date.now() + 60_000),
+        revokedAt: null,
+      } as RefreshToken);
+
+    const result = await service.rotateRefreshToken('old');
+    expect(result).toEqual({ userId: 'user-1', refreshToken: 'successor-raw' });
+    // Grace replay must not mint another token chain.
+    expect(refreshRepo.create).not.toHaveBeenCalled();
+  });
+
+  it('rejects a revoked token beyond the grace window', async () => {
+    refreshRepo.findOne.mockResolvedValueOnce({
+      id: 'rt-old',
+      userId: 'user-1',
+      expiresAt: new Date(Date.now() + 60_000),
+      revokedAt: new Date(Date.now() - 120_000),
+      replacedById: 'rt-new',
+      successorCipher: Buffer.from('enc:successor-raw'),
+    } as RefreshToken);
+
+    await expect(service.rotateRefreshToken('old')).rejects.toBeInstanceOf(
+      InvalidRefreshTokenError,
+    );
+  });
+
+  it('rejects grace replay once the successor was revoked (logout closes the chain)', async () => {
+    refreshRepo.findOne
+      .mockResolvedValueOnce({
+        id: 'rt-old',
+        userId: 'user-1',
+        expiresAt: new Date(Date.now() + 60_000),
+        revokedAt: new Date(Date.now() - 5_000),
+        replacedById: 'rt-new',
+        successorCipher: Buffer.from('enc:successor-raw'),
+      } as RefreshToken)
+      .mockResolvedValueOnce({
+        id: 'rt-new',
+        userId: 'user-1',
+        expiresAt: new Date(Date.now() + 60_000),
+        revokedAt: new Date(),
+      } as RefreshToken);
+
+    await expect(service.rotateRefreshToken('old')).rejects.toBeInstanceOf(
+      InvalidRefreshTokenError,
+    );
+  });
+
+  it('rejects unknown refresh tokens', async () => {
+    refreshRepo.findOne.mockResolvedValueOnce(null);
+    await expect(service.rotateRefreshToken('nope')).rejects.toBeInstanceOf(
+      InvalidRefreshTokenError,
     );
   });
 });

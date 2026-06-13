@@ -131,6 +131,13 @@ export class AppConfigService {
     };
   }
 
+  get refreshRateLimit(): { max: number; windowMs: number } {
+    return {
+      max: this.get('AUTH_REFRESH_RATE_LIMIT_MAX'),
+      windowMs: this.get('AUTH_REFRESH_RATE_LIMIT_WINDOW_MS'),
+    };
+  }
+
   get frontendUrl(): string {
     return this.get('FRONTEND_URL').replace(/\/$/, '');
   }
@@ -214,6 +221,30 @@ export class AppConfigService {
 
   get defaultPricePerMillionUsd(): number {
     return this.get('DEFAULT_PRICE_PER_MILLION_USD');
+  }
+
+  get agentMaxToolsPerToolkit(): number {
+    return this.get('AGENT_MAX_TOOLS_PER_TOOLKIT');
+  }
+
+  get chatHistoryTokenBudget(): number {
+    return this.get('CHAT_HISTORY_TOKEN_BUDGET');
+  }
+
+  get chatRecentMessagesKeep(): number {
+    return this.get('CHAT_RECENT_MESSAGES_KEEP');
+  }
+
+  get chatSummaryModel(): string {
+    return this.get('CHAT_SUMMARY_MODEL');
+  }
+
+  get engineAgentTimeoutSeconds(): number {
+    return this.get('ENGINE_AGENT_TIMEOUT_SECONDS');
+  }
+
+  get engineAgentTimeoutMaxSeconds(): number {
+    return this.get('ENGINE_AGENT_TIMEOUT_MAX_SECONDS');
   }
 
   get spaces(): {

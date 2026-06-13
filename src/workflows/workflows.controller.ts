@@ -66,6 +66,18 @@ export class WorkflowsController {
     return this.variables.getVariablesForNode(detail.graph, nodeId);
   }
 
+  /** Resolve variables against an in-editor graph (includes unsaved nodes). */
+  @Post(':id/nodes/:nodeId/variables')
+  async resolveNodeVariables(
+    @CurrentTenancy() tenancy: Tenancy,
+    @Param('id') id: string,
+    @Param('nodeId') nodeId: string,
+    @Body() dto: ValidateGraphDto,
+  ) {
+    await this.workflows.getById(tenancy, id);
+    return this.variables.getVariablesForNode(dto.graph, nodeId);
+  }
+
   @Get(':id')
   get(@CurrentTenancy() tenancy: Tenancy, @Param('id') id: string) {
     return this.workflows.getById(tenancy, id);

@@ -17,12 +17,21 @@ export class OtpService {
   ) {}
 
   /** Generate a 6-digit OTP, store its hash, and email it. */
-  async createAndSend(userId: string, email: string, name: string): Promise<void> {
+  async createAndSend(
+    userId: string,
+    email: string,
+    name: string,
+    purpose: EmailOtpPurpose = EmailOtpPurpose.SIGNUP_VERIFY,
+  ): Promise<void> {
     const code = this.generateCode();
-    await this.store(userId, code);
+    await this.store(userId, code, purpose);
+    const subject =
+      purpose === EmailOtpPurpose.PASSWORD_RESET
+        ? 'Reset your RipplePot password'
+        : 'Verify your RipplePot account';
     await this.email.sendTemplate({
       to: email,
-      subject: 'Verify your Growy account',
+      subject,
       template: 'otp',
       context: { name, code, ttlMinutes: this.config.otp.ttlMinutes },
     });
@@ -48,14 +57,14 @@ export class OtpService {
     await this.otpRepo.save(row);
   }
 
-  private async store(userId: string, code: string): Promise<void> {
+  private async store(userId: string, code: string, purpose: EmailOtpPurpose): Promise<void> {
     const expiresAt = new Date(Date.now() + this.config.otp.ttlMinutes * 60_000);
     const codeHash = this.crypto.hashSha256(`${userId}:${code}`);
     await this.otpRepo.save(
       this.otpRepo.create({
         userId,
         codeHash,
-        purpose: EmailOtpPurpose.SIGNUP_VERIFY,
+        purpose,
         expiresAt,
         consumedAt: null,
         attempts: 0,

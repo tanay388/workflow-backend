@@ -1,5 +1,6 @@
 import type { WorkflowNode } from '../../common/types/graph';
 import { EngineError, type NodeExecutor } from '../engine.types';
+import { snapshotOutputs } from '../output-snapshot';
 
 interface ConditionRow {
   id?: string;
@@ -18,19 +19,23 @@ export const executeIfElse: NodeExecutor = async (ctx, node: WorkflowNode) => {
       if (cond.type === 'else') {
         return {
           port: cond.id ?? 'else',
-          data: { branch: cond.id ?? 'else', passthrough: ctx.getOutputs() },
+          data: { branch: cond.id ?? 'else', passthrough: snapshotOutputs(ctx.getOutputs()) },
         };
       }
       if (cond.condition && ctx.evaluateCondition(cond.condition)) {
         return {
           port: cond.id ?? 'true',
-          data: { branch: cond.id, condition: cond.condition, passthrough: ctx.getOutputs() },
+          data: {
+            branch: cond.id,
+            condition: cond.condition,
+            passthrough: snapshotOutputs(ctx.getOutputs()),
+          },
         };
       }
     }
     return {
       port: 'none',
-      data: { branch: 'none', passthrough: ctx.getOutputs() },
+      data: { branch: 'none', passthrough: snapshotOutputs(ctx.getOutputs()) },
     };
   }
 
@@ -42,6 +47,10 @@ export const executeIfElse: NodeExecutor = async (ctx, node: WorkflowNode) => {
   const result = ctx.evaluateCondition(condition);
   return {
     port: result ? 'true' : 'false',
-    data: { branch: result ? 'true' : 'false', condition, passthrough: ctx.getOutputs() },
+    data: {
+      branch: result ? 'true' : 'false',
+      condition,
+      passthrough: snapshotOutputs(ctx.getOutputs()),
+    },
   };
 };

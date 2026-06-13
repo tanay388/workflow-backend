@@ -44,6 +44,14 @@ export class RateLimitService {
     }
   }
 
+  /**
+   * Token refresh happens on every page load with a session, so it uses its
+   * own (much looser) bucket than the credential endpoints.
+   */
+  consumeRefresh(ip: string): void {
+    this.consume(`auth:ip:refresh:${ip}`, this.config.refreshRateLimit);
+  }
+
   /** Test helper — clears all counters. */
   reset(): void {
     this.windows.clear();

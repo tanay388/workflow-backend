@@ -12,7 +12,7 @@ import { UserApprovalExecutor } from './executors/user-approval.executor';
 import { WaitExecutor } from './executors/wait.executor';
 import { NodeRegistry } from './node-registry';
 import { WorkflowEngine } from './workflow-engine';
-import { ChatModule } from 'src/chat/chat.module';
+import { ChatModule } from '../chat/chat.module';
 
 @Module({
   imports: [
